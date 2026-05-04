@@ -9,6 +9,6 @@ Welcome to the TryHackMe Walkthroughs repository! This repo contains detailed wa
 
 ### Content
 
-[Investigating Windows](https://tryhackme.com/room/investigatingwindows) – A practical SOC-style investigation involving Windows log analysis to detect unauthorized                                                                             access, privilege escalation, persistence via scheduled tasks, and attacker command-and-                                                                              control activity.
+[Investigating Windows](https://github.com/angeline-infosec/Tryhackme-Walkthroughs/blob/main/Investigating-Windows.md) – A practical SOC-style investigation involving Windows log analysis to detect unauthorized access, privilege escalation, persistence via scheduled tasks, and attacker command-and-control activity.
 
 More walkthroughs will be added soon!
