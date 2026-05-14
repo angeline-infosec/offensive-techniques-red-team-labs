@@ -14,4 +14,7 @@ Welcome to the TryHackMe Walkthroughs repository! This repo contains detailed wa
 
 [Investigating Windows](https://github.com/angeline-infosec/Tryhackme-Walkthroughs/blob/main/Investigating-Windows.md) – A practical SOC-style investigation involving Windows log analysis to detect unauthorized access, privilege escalation, persistence via scheduled tasks, and attacker command-and-control activity.
 
+
+[h4cked](https://github.com/angeline-infosec/Tryhackme-Walkthroughs/blob/main/H4cked.md) – A hands-on PCAP forensics and exploitation challenge involving FTP brute-force analysis, PHP reverse shell deployment, privilege escalation, and rootkit identification.
+
 More walkthroughs will be added soon!
