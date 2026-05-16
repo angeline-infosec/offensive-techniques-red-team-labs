@@ -203,7 +203,7 @@ ANS: 03/02/2019 4:04:49 PM (Answer format: MM/DD/YYYY HH:MM:SS AM/PM)
 
 We can now see the name of the tool
 
-ANS: mimkatz
+ANS: mimikatz
 
 
 13. Command & Control (C2) Server
