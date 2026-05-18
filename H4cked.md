@@ -1,9 +1,8 @@
 # [h4cked](https://tryhackme.com/room/h4cked) - TryHackMe Writeup
 
-![TryHackMe](https://img.shields.io/badge/TryHackMe-1abc9c?style=flat-square)
+Platform: ![TryHackMe](https://img.shields.io/badge/TryHackMe-1abc9c?style=flat-square) |  Difficulty: Easy | Perspective: Attacker
 
           Category: Digital Forensics / Penetration Testing
-          Difficulty: Easy
           Tools Used: Wireshark, Hydra, Netcat, FTP client
           
 ---
