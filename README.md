@@ -18,6 +18,8 @@ The goal of this repository is to document real-world attack techniques, enumera
 
 ### Content
 
-[h4cked](https://github.com/angeline-infosec/Tryhackme-Walkthroughs/blob/main/H4cked.md) – A hands-on PCAP forensics and exploitation challenge involving FTP brute-force analysis, PHP reverse shell deployment, privilege escalation, and rootkit identification.
+[h4cked](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/blob/main/H4cked.md) – A hands-on PCAP forensics and exploitation challenge involving FTP brute-force analysis, PHP reverse shell deployment, privilege escalation, and rootkit identification.
+
+[TakeOver](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/blob/main/TakeOver.md)An external reconnaissance lab focused on subdomain enumeration, TLS certificate inspection, and virtual host analysis against a simulated target environment. Demonstrates how passive techniques like Certificate Transparency log inspection and HTTP/HTTPS behavioral analysis can expose misconfigured infrastructure without touching a single exploit.
 
 More offensive security and red team simulations will be added soon!
