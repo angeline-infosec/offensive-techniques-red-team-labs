@@ -22,6 +22,6 @@ The goal of this repository is to document real-world attack techniques, enumera
 
 * [TakeOver](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/blob/main/TakeOver.md) - An external reconnaissance lab focused on subdomain enumeration, TLS certificate inspection, and virtual host analysis against a simulated target environment. Demonstrates how passive techniques like Certificate Transparency log inspection and HTTP/HTTPS behavioral analysis can expose misconfigured infrastructure without touching a single exploit.
 
-* [LazyAdmin]() – A full end-to-end web exploitation and privilege escalation lab targeting a misconfigured SweetRice CMS. Covers directory enumeration, exposed SQL backup discovery, credential extraction, authenticated PHP reverse shell upload, and Linux privilege escalation via sudo misconfiguration and writable script abuse.
+* [LazyAdmin](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/blob/main/LazyAdmin.md) – A full end-to-end web exploitation and privilege escalation lab targeting a misconfigured SweetRice CMS. Covers directory enumeration, exposed SQL backup discovery, credential extraction, authenticated PHP reverse shell upload, and Linux privilege escalation via sudo misconfiguration and writable script abuse.
 
 More offensive security and red team simulations will be added soon!
