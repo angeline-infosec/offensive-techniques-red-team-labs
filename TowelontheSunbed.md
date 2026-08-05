@@ -6,66 +6,87 @@
 
 **Vulnerability class:** Race Condition (TOCTOU) — CWE-362
 
+<img width="1908" height="532" alt="image" src="https://github.com/user-attachments/assets/860ec183-9387-4801-8b52-d2257bf0783b" />
+
+
 ---
 
 ## Scenario
 
-Ponzi Portfolio is a wellness-resort crypto rewards app. Guest accounts start at 0 PONZI and can claim a 50-PONZI staking reward once every 24 hours. Hitting 150 PONZI unlocks the "Whale Vault" and its reward — at the intended pace that's three separate days of claiming. The goal was to reach Whale tier without actually waiting three days.
+Ponzi Portfolio is a wellness-resort crypto rewards app. Guest accounts start at 0 PONZI and can claim a 50-PONZI staking reward once every 24 hours. Hitting 150 PONZI unlocks the "Whale Vault" and its reward. At the intended pace that's three separate days of claiming. The goal was to reach Whale tier without actually waiting three days.
 
 ## First attempt (and the wall I hit)
 
-I registered a guest account (`test` / `testuser`) and landed on the dashboard: 0 PONZI, Shrimp tier, Whale Vault locked at 150/150, and a Claim Reward button as the only interactive piece on the page. I checked the page source and `dashboard.js` first, just to see if there was anything obvious client-side — there wasn't, it was purely UI rendering, so I moved on.
+I registered a guest account (`test` / `testuser`) and landed on the dashboard: 0 PONZI, Shrimp tier, Whale Vault locked at 150/150, and a Claim Reward button as the only interactive piece on the page. I checked the page source and `dashboard.js` first, just to see if there was anything obvious client-side but there wasn't; it was purely UI rendering, so I moved on.
 
-I fired up Burp, intercepted the claim request, and sent it to Repeater. First send worked fine — 50 PONZI, still Shrimp tier. Out of curiosity I hit send again on the exact same request, and that's where the 24-hour lockout kicked in — the app told me to come back tomorrow. So the server side clearly does check some kind of "last claimed at" timestamp before it lets a claim through.
+<img width="1920" height="953" alt="register" src="https://github.com/user-attachments/assets/937037b8-5022-4a71-b9f6-fabb9445914c" />
 
-At that point sequential requests were a dead end on this account (I'd already burned my one claim for the day), so I logged out and registered a fresh account, `test` / `testing`, to start clean and actually try to break the timing instead of just confirming it existed.
+<img width="1920" height="962" alt="dashboard" src="https://github.com/user-attachments/assets/5dad114b-f9bd-4dfd-a390-2c768100f4f6" />
+
+
+I opened Burp, intercepted the claim request, and sent it to Repeater. First send worked fine. 50 PONZI but still Shrimp tier. Out of curiosity, I hit send again on the exact same request, and that's where the 24-hour lockout kicked in, the app told me to come back tomorrow. So the server side clearly does check some kind of "last claimed at" timestamp before it lets a claim through.
+
+<img width="1196" height="615" alt="Burp req 2" src="https://github.com/user-attachments/assets/a6961618-6922-4fb9-a46c-00990ac1c507" />
+
+
+At that point, sequential requests were a dead end on this account (I'd already burned my one claim for the day), so I logged out and registered a fresh account, using credentials `test` / `testing`, to start clean and actually try to break the timing instead of just confirming it existed.
 
 ## The actual move
 
-Request captured, looked like this:
+My first account showed that the server's logic is probably:
+* Read the user's last_claim_timestamp.
+* If the last claim was less than 24 hours ago, reject the request.
+* Otherwise, award 50 PONZI and update last_claim_timestamp.
 
-```
-POST /claim HTTP/1.1
-Host: <target>:3000
-Cookie: connect.sid=<session>
-Content-Length: 0
-```
+So, sending requests sequentially won't trigger the vulnerability because the first request finishes updating the timestamp before the next request begins. The vulnerable window exists between the server reading the current timestamp and writing the updated one. If multiple requests are processed concurrently during that interval, they can all observe the old value, pass the eligibility check, and each receive the reward before the timestamp is updated. This is the race condition being exploited.
 
-The lockout behavior from my first account told me the check is something like: look up `last_claim_timestamp`, if less than 24h ago reject, otherwise credit 50 PONZI and update the timestamp. Sending requests one after another (even fast, by hand) always lets the first one fully complete — write included — before the second even lands. So a normal Repeater retry will always get caught by the check, same as it did on account one.
+So, on the new account, I duplicated the claim request into a Repeater group of 3 and used **Send group in parallel**, which pushes them out close to simultaneously rather than one after another. All three landed inside that check-to-write gap and all three went through:
 
-The gap that matters is between the server *reading* the timestamp and the server *writing* the new one. If two or more requests land in that gap at the same time, they can all read "not claimed yet" before any of them has saved the update.
+<img width="948" height="486" alt="request grouped" src="https://github.com/user-attachments/assets/79b80e3b-c57a-4715-8ba7-86af4a67873e" />
 
-So on the new account I duplicated the claim request into a Repeater group of 3 and used **Send group in parallel**, which pushes all of them out close to simultaneously instead of one after another. All three landed inside that check-to-write gap and all three went through:
+
+<img width="1194" height="616" alt="Tier Whale access" src="https://github.com/user-attachments/assets/2c6eb02f-7640-4ea3-a278-4bf7f776b06e" />
+
 
 ```json
-{"message":"Staking reward claimed successfully.","reward":50,"newBalance":150,"tier":"Whale","priceSnapshot":4.2}
+{
+"message":"Staking reward claimed successfully.",
+"reward":50,
+"newBalance":150,
+"tier":"Whale",
+"priceSnapshot":4.2
+}
 ```
 
-0 → 150 PONZI in one burst. Refreshed the dashboard, Whale tier unlocked, vault open.
+0 → 150 PONZI in one burst. I turned off intercept and proxy, refreshed the dashboard, Whale tier unlocked, and the vault opened with the flag of the room.
+
+<img width="1920" height="960" alt="Flag" src="https://github.com/user-attachments/assets/941635f2-aa76-434c-914d-e00ba5fc8365" />
+
 
 **Flag:** `THM{t0w3l_0n_th3_sunb3d_d0ubl3_sp3nt}`
 
-## Vulnerability classification
-
-MITRE ATT&CK doesn't really apply here — it's built around adversary behavior against infrastructure, not app-level logic bugs, so trying to force a technique ID onto this would be a stretch. The honest reference points are:
-
-- **CWE-362** — Concurrent Execution using Shared Resource with Improper Synchronization ("Race Condition")
-- **OWASP API Security Top 10 (2023) — API8:2023** — Security Misconfiguration / Lack of Resources & Rate Limiting, which overlaps with the fix here
-- Business Logic Vulnerabilities more broadly, per OWASP
 
 ## How I'd fix it
 
-- Make the check and the update one atomic operation — a DB transaction with row locking (`SELECT ... FOR UPDATE`), or a conditional update like `UPDATE ... WHERE last_claim < now() - interval '24 hours'` that can only succeed for one of the concurrent requests.
-- A unique constraint (one claim record per account per day) would also work — the second concurrent insert just fails.
-- Rate limiting on its own doesn't fix this. It slows down how often you *can* request, but three requests sent in the same millisecond are all still "within the rate limit" — the race window is still there.
+From what I observed, the problem is that the application checks whether a user can claim the reward and updates the claim timestamp as two separate steps. Because those steps aren't atomic, multiple requests can pass the check before the timestamp is updated.
+
+A few ways this could be fixed are:
+
+* Wrap the check and update in a single database transaction (for example, using SELECT ... FOR UPDATE) so only one request can process the claim at a time.
+* Use a conditional database update that only succeeds if the previous claim was more than 24 hours ago. If another request has already updated the record, the second update simply fails.
+* Store each claim as a separate database record with a unique constraint (for example, one claim per account per day). Concurrent requests would cause only one insert to succeed while the others would be rejected.
+
+Simply adding rate limiting wouldn't solve this issue. The problem isn't how many requests are sent over time. It is that several requests can reach the server at nearly the same moment and all pass the eligibility check before the database is updated.
+
+Ps. I couldn't confirm the exact backend implementation because I didn't have access to the source code. These are the mitigations I would expect for this type of race condition.
 
 ## What I learned
 
 - The bug isn't in what the endpoint does, it's in the timing of when it does it. Anywhere there's a read-then-write on a per-user resource without locking, that gap is exploitable.
-- My first account taught me something useful even though it "failed" — confirming the sequential lockout is what told me the timestamp check exists and that I needed simultaneous requests, not repeated ones.
-- This class of bug won't show up from clicking around the UI or reading client-side JS — it only shows up under real concurrency, which is why the tool matters (Burp's parallel send here, Turbo Intruder for cases that need single-packet precision).
-- Knowing when *not* to force a MITRE ATT&CK mapping is its own skill — CWE/OWASP fit app logic flaws better, and picking the right framework says more in an interview than a wrong mapping would.
+- My first account taught me something useful even though it failed. It confirmed the sequential lockout is what told me the timestamp check exists and that I needed simultaneous requests, not repeated ones.
+- This class of bug won't show up from clicking around the UI or reading client-side JS, it only shows up under real concurrency, which is why the tool matters (Burp's parallel send here).
 
+---
 
 ## Q&A
 
