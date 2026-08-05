@@ -82,6 +82,7 @@ Ps. I couldn't confirm the exact backend implementation because I didn't have ac
 
 ## What I learned
 
+- Before this room, I understood race conditions conceptually but hadn't exploited one myself. What stood out was that the application behaved correctly under normal usage. The vulnerability only appeared when multiple requests were processed concurrently. It reinforced that security testing isn't just about manipulating input, sometimes it's about manipulating timing.
 - The bug isn't in what the endpoint does, it's in the timing of when it does it. Anywhere there's a read-then-write on a per-user resource without locking, that gap is exploitable.
 - My first account taught me something useful even though it failed. It confirmed the sequential lockout is what told me the timestamp check exists and that I needed simultaneous requests, not repeated ones.
 - This class of bug won't show up from clicking around the UI or reading client-side JS, it only shows up under real concurrency, which is why the tool matters (Burp's parallel send here).
