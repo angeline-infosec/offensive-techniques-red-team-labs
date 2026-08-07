@@ -1,28 +1,28 @@
-# Hacker's Holiday 2026: The Hollow Shell Writeup
+# The Hollow Shell - [TryHackMe Hacker's Holiday 2026](https://tryhackme.com/hackerholidays)
 
-**Angeline Marietta Charley**
+**Room:** [The Hollow Shell (TryHackMe Hacker's Holiday 2026)](https://tryhackme.com/room/hh-thehollowshell-ddb582ac)
 
-Exploiting a Zip Slip + Malicious Hook Chain in TryHackMe's "The Hollow Shell"
-
-**Room:** The Hollow Shell (TryHackMe Hacker's Holiday 2026)
 **Category:** Web
+
 **Difficulty:** Medium
-**Vulnerability class:** Zip Slip (path traversal on archive extraction) leading to Remote Code Execution via an automation hook mechanism — CWE-22
+
+**Vulnerability class:** Zip Slip (path traversal on archive extraction) leading to Remote Code Execution via an automation hook mechanism - CWE-22
+
+<img width="1908" height="495" alt="image" src="https://github.com/user-attachments/assets/ba3a1f30-a257-4d32-86e1-54cf462e9171" />
+
 
 ---
 
-*Disclaimer: This walkthrough is based on the intentionally vulnerable TryHackMe room The Hollow Shell from the Hacker's Holiday 2026 event. All testing was performed in the provided lab environment for educational purposes.*
-
 ## Introduction
 
-Byte Lotus is a fictional beachfront resort with a "Shoreline Display" portal that lets staff personalise in-room tablets by uploading a "shell" — a `.zip` souvenir pack containing a `shell.json` manifest and optional image/CSS assets. The portal mentions that shells can include "automation hooks" which a background "theme worker" applies shortly after upload. My goal was to figure out what that upload feature actually trusted, and whether the hook mechanism could be abused to get code execution on the server.
+Byte Lotus is a fictional beachfront resort with a "Shoreline Display" portal that lets staff personalise in-room tablets by uploading a "shell", a `.zip` souvenir pack containing a `shell.json` manifest and optional image/CSS assets. The portal mentions that shells can include "automation hooks" which a background "theme worker" applies shortly after upload. My goal was to figure out what that upload feature actually trusted, and whether the hook mechanism could be abused to get code execution on the server.
 
 ## Initial Enumeration
 
 I started with a standard Nmap scan against the target:
 
 ```
-nmap -sCV <TARGET_IP> -Pn
+nmap -sCV 10.49.145.252 -Pn
 ```
 
 This revealed two open ports: SSH on 22, and an HTTP service on port 5000 running Gunicorn, titled "Byte Lotus — Room Service." Visiting the site redirected to a staff login page.
