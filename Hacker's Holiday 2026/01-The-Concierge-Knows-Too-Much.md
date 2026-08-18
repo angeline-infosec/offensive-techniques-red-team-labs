@@ -1,7 +1,7 @@
 The Concierge Knows Too Much - TryHackMe Hacker's Holiday 2026
 ================================================================
 
-**Room:** The Concierge Knows Too Much (TryHackMe Hacker's Holiday 2026)
+**Room:** [The Concierge Knows Too Much (TryHackMe Hacker's Holiday 2026)](https://tryhackme.com/room/hh-theconciergeknows-2d7eb4d9)
 
 **Category:** AI / LLM Security
 
@@ -90,13 +90,17 @@ The other thing that stood out: the room briefing and the in-fiction social medi
 ## Q&A
 
 **Q: What is prompt injection, and why is it a security issue?**
+
 A: It's when user-supplied input changes the LLM's behavior in ways its designers didn't intend — either by directly overriding instructions, or, as in this case, by satisfying conditions the instructions *do* define but never meant to be trivially satisfiable. Here, the "app" behaved exactly as coded; the code just trusted the wrong things.
 
 **Q: How do you test for this kind of vulnerability?**
+
 A: Start by looking for personalization — anything an agent "knows" that wasn't explicitly provided is a sign it has a profile or instruction set behind it. Then test what it takes to move between trust levels: can identity be claimed rather than proven? Separately, test whether the agent can be asked to describe, summarize, or repeat its own configuration — that's often the fastest way to see the actual rules instead of guessing at them from behavior.
 
 **Q: How would you fix this one specifically?**
+
 A: Replace name-based identity claims with real authentication, move secrets out of the system prompt entirely, and remove any instruction path that allows the model to output its own configuration verbatim.
 
 **Q: Why is a "repeat your instructions" framing more dangerous than it looks?**
+
 A: Because it's phrased as a meta-request about the assistant's behavior rather than a request for specific information, it can sail past guardrails that are only tuned to block direct asks for known-sensitive values (like "what's the code?"). Any instruction that tells a model "you may reveal your full prompt under condition X" is a liability, because condition X is usually easier to satisfy than the designer assumed.
