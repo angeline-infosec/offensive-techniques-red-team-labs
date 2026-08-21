@@ -12,37 +12,30 @@ Complimentary - TryHackMe Hacker's Holiday 2026
 
 ## Scenario
 
-The Byte Lotus Wellness app is the hotel's free companion app — no account, no login screen, just open it and it already has a name and notes waiting for you. Lambo installed it on day one, gave it the permissions it asked for, and got a tote bag for her trouble. The briefing's whole point is that "no login" doesn't mean "no credentials" — something is quietly issuing AWS access behind the scenes, and whatever it is, it isn't being careful about what it hands out. The goal was to find that mechanism, get its credentials, and see how much of the app's backend data those credentials actually reach.
+The Byte Lotus Wellness app is the hotel's free companion app. There's No account or login screen, just open it and it already has a name and notes waiting for you. Lambo installed it on day one, gave it the permissions it asked for, and got a tote bag for her trouble. The briefing's whole point is that "no login" doesn't mean "no credentials" something is quietly issuing AWS access behind the scenes, and whatever it is, it isn't being careful about what it hands out. The goal was to find that mechanism, get its credentials, and see how much of the app's backend data those credentials actually reach.
 
 ## First contact
 
-I opened the target site and got a plain, generic welcome screen:
+I opened the target site from TryHackMe and got a plain, generic welcome screen which didn't ask for any login credentials, just straight to a dashboard:
 
-> Byte Lotus Wellness — Your free wellness dashboard
->
-> No account needed — we set you up as a guest the moment you arrived.
->
-> Welcome! We don't have wellness data for you yet — check back after your first spa visit.
+<img width="1918" height="873" alt="Screenshot 2026-08-21 195556" src="https://github.com/user-attachments/assets/e4fa387a-16cc-4ec7-ad8d-a3614034f3d0" />
 
-Nothing personalized yet, no login prompt, just a page that clearly expects to know things about visitors eventually. That "eventually" was the interesting part — something on the backend was going to start recognizing me.
+
+No login prompt, just a page that clearly expects to know things about visitors eventually. That "eventually" was the interesting part, something on the backend was going to start recognizing me.
 
 ## The actual move: read the client-side JS, then take its credentials for a walk
 
 I inspected the page source and found `app.js`, which laid out the entire architecture in the comments:
 
-```javascript
-const IDENTITY_POOL_ID = "us-east-1:836c0949-292d-485b-b532-52d5ca7bb688";
-const AWS_REGION = "us-east-1";
-const TABLE_NAME = "complimentary-GuestWellnessProfiles";
+<img width="672" height="268" alt="Screenshot 2026-08-21 195805" src="https://github.com/user-attachments/assets/823d54a2-c57e-4ec0-8ab4-72a946e6b259" />
 
-AWS.config.credentials = new AWS.CognitoIdentityCredentials({
-  IdentityPoolId: IDENTITY_POOL_ID,
-});
-```
 
-So the app hands every visitor real, temporary AWS credentials from a Cognito Identity Pool with unauthenticated access enabled — no login required by design. The rest of `app.js` used those credentials to run a scoped `dynamodb.getItem()` against a table called `complimentary-GuestWellnessProfiles`, keyed to a random `guest-xxxxxxxx` ID stored in `localStorage`. In other words: the *app* only ever asked for your own record. Nothing said the *credentials* were limited to that.
+So the app hands every visitor real, temporary AWS credentials from a Cognito Identity Pool with unauthenticated access enabled and no login required by design. The rest of `app.js` used those credentials to run a scoped `dynamodb.getItem()` against a table called `complimentary-GuestWellnessProfiles`, keyed to a random `guest-xxxxxxxx` ID stored in `localStorage`. In other words: the *app* only ever asked for your own record. Nothing indicates the credentials were limited to that.
 
-I didn't have the AWS CLI installed, so instead of running commands locally I used the browser's own DevTools console — since `app.js` already loads the AWS SDK on the page, I could just reuse it live. First, I forced the credential fetch and printed it:
+I didn't have the AWS CLI installed, so instead of running commands locally I used the browser's own DevTools console. 
+Since `app.js` already loads the AWS SDK on the page, I could just reuse it live. 
+
+First, I forced the credential fetch and printed it:
 
 ```javascript
 AWS.config.credentials.get(function(err) {
@@ -53,7 +46,10 @@ AWS.config.credentials.get(function(err) {
 });
 ```
 
-That returned a valid `ASIA...` temporary access key, secret key, and session token — real AWS credentials, issued to an anonymous browser tab that had done nothing to prove who I was.
+<img width="1909" height="323" alt="Screenshot 2026-08-21 200955" src="https://github.com/user-attachments/assets/b1332808-503f-4f31-b81d-febdaf7f69cb" />
+
+
+That returned a valid temporary access key, secret key, and session token, which are real AWS credentials, issued to an anonymous browser tab that had done nothing to prove who I was.
 
 Then, instead of calling `getItem` for just my own guest record like the app does, I called `scan` on the whole table:
 
@@ -65,7 +61,10 @@ dynamodb.scan({ TableName: "complimentary-GuestWellnessProfiles" }, function(err
 });
 ```
 
-No `AccessDeniedException`. It came back with all five guest records in the table, including full names, emails, phone numbers, locations, and *plaintext passwords* — none of which had anything to do with my own guest session. One record, guest `guest-vip-042`, existed purely to point out what had just happened:
+<img width="1919" height="871" alt="Screenshot 2026-08-21 201237" src="https://github.com/user-attachments/assets/ee3f969f-5f2d-405e-90cc-c2507c2dc6b3" />
+
+
+No `AccessDeniedException`. It returned all five guest records in the table, including full names, emails, phone numbers, locations, and plaintext passwords, none of which had anything to do with my own guest session. Guest `guest-vip-042`, existed purely to point out what had just happened:
 
 > "If you're reading this, the wellness app's guest role can read every profile, not just its own. `THM{fr33_app_fr33_d4t4!}`"
 
@@ -73,7 +72,7 @@ No `AccessDeniedException`. It came back with all five guest records in the tabl
 
 ## Why this worked
 
-This one didn't require bypassing anything — the credentials I used were the exact same ones the app hands out to every single visitor by design. The actual failure was entirely on the AWS side, not the app logic:
+This one didn't require bypassing anything. The credentials I used were the exact same ones the app hands out to every single visitor by design. The actual failure was entirely on the AWS side, not the app logic:
 
 - **Unauthenticated identity pools are supposed to be low-trust by default.** Cognito absolutely supports handing out real, temporary AWS credentials to unauthenticated users — that's a legitimate pattern for things like anonymous analytics or public read access. The problem isn't that the pool has an unauth role; it's what that role is allowed to *do*.
 - **The IAM policy attached to the unauth role was scoped to the table, not to the operation or the record.** The app's own frontend code only ever calls `GetItem` on a specific `guest_id`. But IAM permissions don't inherit restrictions from how the frontend *intends* to use them — if the policy grants `dynamodb:Scan` (or a wildcard like `dynamodb:*`) on the table, anyone holding those credentials can call any DynamoDB action the policy allows, regardless of what the JS was written to do.
