@@ -81,16 +81,16 @@ This one didn't require bypassing anything. The credentials I used were the exac
 
 ## How I'd fix it
 
-- **Scope the IAM policy down to the specific action the app actually needs**, i.e. `dynamodb:GetItem` only, not `Scan`, `Query`, or a wildcard — and never grant unauth roles broad table-level access when the use case is "read your own record."
+- **Scope the IAM policy down to the specific action the app actually needs**, i.e. `dynamodb:GetItem` only, not `Scan`, `Query`, or a wildcard, and never grant unauth roles broad table-level access when the use case is "read your own record."
 - **Use fine-grained access control (IAM condition keys / `LeadingKeys`) tied to the Cognito identity ID**, so even `GetItem` can only ever retrieve the item whose partition key matches the caller's own `cognito-identity.amazonaws.com:sub`. This turns "the app only asks for your own data" into an actual enforced boundary instead of a polite convention.
-- **Don't store secrets like plaintext passwords in a guest-readable table at all.** Even with tighter IAM scoping, storing raw passwords in DynamoDB is a second failure independent of the access control issue — that data shouldn't be retrievable in plaintext by anything, including the legitimate owner's own session.
-- **Treat unauthenticated Cognito credentials as fully public.** Anyone can obtain them from any browser with zero verification, so the permissions attached to that role should be audited as if they're being handed directly to a stranger — because they are.
+- **Don't store secrets like plaintext passwords in a guest-readable table at all.** Even with tighter IAM scoping, storing raw passwords in DynamoDB is a second failure independent of the access control issue that data shouldn't be retrievable in plaintext by anything, including the legitimate owner's own session.
+- **Treat unauthenticated Cognito credentials as fully public.** Anyone can obtain them from any browser with zero verification, so the permissions attached to that role should be audited as if they're being handed directly to a stranger well, because they are.
 
 ## What I learned
 
-This room made the client-side vs. backend distinction really concrete. The frontend code was, in a narrow sense, "well-behaved" — it only ever asked for one guest's record. But well-behaved frontend code means nothing if the credentials backing it aren't equally restricted, because anyone can open DevTools and just... not use the frontend. The actual security boundary in a Cognito-based app has to live in the IAM policy attached to the identity pool role, not in the JavaScript that happens to ship with the page.
+This room made the client-side vs. backend distinction really concrete. The frontend code was, in a narrow sense, "well-behaved"; it only ever asked for one guest's record. But well-behaved frontend code means nothing if the credentials backing it aren't equally restricted, because anyone can open DevTools and just... not use the frontend. The actual security boundary in a Cognito-based app has to live in the IAM policy attached to the identity pool role, not in the JavaScript that happens to ship with the page.
 
-It's also a good reminder that "free," "no login," and "read-only" are marketing language, not security guarantees. Each one described a real property of the system here (no account was needed, and yes, technically the access was read-only) — none of them said anything about *whose* data that access reached.
+It's also a good reminder that "free," "no login," and "read-only" are marketing language, not security guarantees. Each one described a real property of the system here (no account was needed, and yes, technically the access was read-only) none of them said anything about whose data that access reached.
 
 ## Q&A
 
@@ -109,3 +109,34 @@ A: Look for any app that skips login but still personalizes content — that's a
 **Q: How would you fix this one specifically?**
 
 A: Tighten the IAM policy on the unauth role to `GetItem` only, add a condition key binding the query to the caller's own Cognito identity so even `GetItem` can't reach other records, and get plaintext passwords out of the table entirely.
+
+
+## Note
+
+**What is Cognito, actually?**
+
+It's AWS's identity service. Its job is to hand out temporary AWS credentials to app users so the app can talk directly to AWS services (DynamoDB, S3, etc.) without the developer needing to stand up their own backend API. Two flows exist: authenticated (you log in via Google/Facebook/a user pool, then get credentials tied to you) and unauthenticated (you get credentials for just showing up, no proof of identity at all). This app used the second one, by design — that's the "no login screen" pitch.
+
+**Why would anyone do that on purpose?**
+
+It's not inherently reckless. Plenty of legit apps use unauth Cognito for things like anonymous analytics, public read-only content, or letting a first-time visitor save preferences before they've created an account. The pattern itself is fine. What matters entirely is what IAM permissions get attached to that unauth role.
+
+**Where was the actual bug?**
+
+Not in the app's JavaScript — app.js behaved exactly as intended, only ever calling GetItem for your own guest_id. The bug was in AWS IAM, one layer down. The unauth role's policy granted dynamodb:Scan (or similarly broad access) on the whole table, not just GetItem scoped to your own record. IAM doesn't know or care what the frontend meant to do — it only enforces what the policy allows. Since I had the same raw credentials the page was using, I wasn't limited to the SDK calls the page's code happened to make. I could call anything the policy permitted.
+
+**Why is that the real lesson?**
+
+Client-side code is not a security boundary — full stop. Anything running in a browser can be inspected, and any credentials it holds can be extracted and reused outside the page entirely, via DevTools console, curl, the CLI, whatever. "The app only asks for X" is a UX detail. "The credentials can only get X" is a security control. Only the second one actually matters. This is the cloud-native cousin of "never trust client-side validation" — same principle, different layer.
+
+**Why did scan succeed where get-item on someone else's ID wouldn't have worked as cleanly?**
+
+GetItem needs you to already know the exact partition key (guest_id) you're asking for — you'd have had to guess or leak someone else's guest ID first. Scan doesn't require knowing anything in advance; it just reads the entire table, keys and all, in one call. So the existence of Scan permission on the unauth role turned "can't see others' data without their ID" into "can see literally everyone's data with zero prior knowledge."
+
+**What should have been different, concretely?**
+
+Three separate layers should have existed and didn't:
+
+IAM policy scoped to GetItem only — no Scan, no Query, no wildcard actions.
+A condition key (dynamodb:LeadingKeys) binding even GetItem to the caller's own Cognito identity ID, so the policy itself enforces "only your row," not just the app's habits.
+Plaintext passwords should never have been in that table at all — that's a data-handling failure independent of the access-control one. Even the legitimate, correctly-scoped owner of a record shouldn't get their password back in plaintext from a read call.
