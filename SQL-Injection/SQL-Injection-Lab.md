@@ -7,65 +7,93 @@ _Understand how SQL injection attacks work and how to exploit this vulnerability
 
 _A hands-on walkthrough of TryHackMe's SQL Injection Lab room — ten challenges spanning classic authentication bypass, UNION-based extraction, boolean-based blind injection, UPDATE-statement injection, second-order (stored) injection, and automated exploitation with sqlmap, including a custom tamper script._
 
+## Lab Overview
+This lab worked through ten progressively harder SQL injection scenarios inside a deliberately vulnerable employee-management application. It started with textbook authentication bypass and ended with chained, second-order vulnerabilities that required controlling one query to weaponize a completely different one. Rather than one technique reused ten times, each challenge forced a different angle: reading data out through fields never meant to display it, writing data back through forms assumed to be safe, and exploiting the gap between a query that's correctly parameterized and the one sitting downstream of it that isn't.
 
+I'm working toward a Tier 1 SOC Analyst role, so alongside each technique I've noted what it would actually surface from the defending side — that's ultimately the lens this lab was most useful for.
 
-## Environment
+## What I Learned
+**Why string concatenation in SQL queries is the root cause:** every vulnerability in this lab traced back to the same mistake — user input dropped directly into a query string instead of being treated as pure data. The specific syntax varied (login forms, UPDATE statements, search fields), but the underlying flaw never did.
 
-A standalone sandbox app at `http://<machine_ip>:5000`, with a "Show Query" toggle to see the live SQL being executed and a "Guidance" toggle for hints. Split into two tracks: **Introduction to SQL Injection** (5 isolated challenges building up core technique) and **Vulnerable Startup** (a themed employee-management app with progressively realistic, chained vulnerabilities).
+**Why "parameterized" doesn't mean "safe" app-wide:** a query can be perfectly parameterized and still be part of a vulnerable system, if a different, unsafe query later reads the data that safe query stored. Safety is a property of every query touching a piece of data, not of the one that first receives it.
+
+**Why blind injection is slow but not weak:** without any visible output, extracting data one character at a time via true/false responses (or response timing) is tedious by hand — but it's just as complete as reading data directly off the page, and it's exactly what tools like sqlmap exist to automate.
+
+## Investigation Steps
+
+### Step 1 — Environment Setup & Baseline Bypass | ⚙️ Prerequisite
+**What happened:**
+The sandbox app runs with a "Show Query" toggle exposing the live SQL behind every request — genuinely useful for confirming cause and effect rather than guessing. Starting with the simplest login forms, an integer-type parameter and a string-type parameter each fell to the classic always-true bypass:
+```
+1 or 1=1-- -
+1' or '1'='1'-- -
+```
+One early snag: a bare `--` comment marker didn't reliably work. MySQL's comment syntax requires a trailing whitespace character after the second dash to actually take effect — without it, a stray quote left over from the original query can go unmatched and break the injection instead of completing it. Switching to `-- -` (dash-dash-space-dash) fixed it immediately.
+
+_[Screenshot: login bypass with Show Query panel confirming the injected statement]_
+
+**Why this matters:**
+This is the foundational pattern every later challenge in the lab builds on — close the data context you've been placed in, inject a condition, comment out the rest. Getting the comment syntax wrong looks like a failed injection, not a syntax issue, which is a useful debugging lesson on its own.
+
+**Flags:** `THM{dccea429d73d4a6b4f117ac64724f460}`, `THM{356e9de6016b9ac34e02df99a5f755ba}`
 
 ---
 
-## Track 1: Introduction to SQL Injection
+### Step 2 — Defeating Client-Side Controls | 🧱 Bypass Technique
+**What happened:**
+The next two forms added JavaScript restricting input to alphanumeric characters. For the GET-based form, the client-side check was skipped entirely by crafting the target URL directly in the address bar — the JS never runs if the form itself is never submitted through the browser's normal flow. For the POST-based form, that wasn't an option, so I intercepted the request in **Burp Suite** and edited the raw request body before forwarding it. The same comment-syntax issue from Step 1 reappeared here — a bare `--` silently failed inside Burp until I added the trailing space back in. Once the login succeeded, I captured the resulting session cookie and replayed it with Burp Repeater against the application's home page to pull the flag straight out of the rendered HTML.
 
-### Challenges 1–2: Classic Authentication Bypass
-Two login forms, one taking an integer `profileID`, one taking a string. The core idea is the same either way — inject a condition that's always true, then comment out whatever's left of the original query:
-```
-1 or 1=1-- -              (integer parameter)
-1' or '1'='1'-- -          (string parameter)
-```
-One detail worth knowing: MySQL's `--` comment marker needs a trailing whitespace character to actually take effect — a bare `--` with nothing after it can leave a stray quote unmatched and break the query instead of commenting it out cleanly. `-- -` (dash-dash-space-dash) sidesteps that, and survives URL-encoding intact too.
+_[Screenshot: Burp Repeater request/response showing the authenticated home page and flag]_
 
-**Flags**: `THM{dccea429d73d4a6b4f117ac64724f460}`, `THM{356e9de6016b9ac34e02df99a5f755ba}`
+**Why this matters:**
+Client-side validation is a UX feature, not a security boundary — the client is fully under the attacker's control, whether that's a crafted URL or an intercepting proxy. From a defensive standpoint, any server-side endpoint that *only* trusts JS-level input filtering has no real protection at all.
 
-### Challenges 3–4: Bypassing Client-Side Validation
-Both forms add JavaScript restricting input to alphanumeric characters only. Client-side validation is a UX feature, not a security boundary — the client is fully under the attacker's control.
-- **Challenge 3** (GET request): bypassed entirely by crafting the URL directly — `?profileID=-1' or 1=1-- -&password=a` — skipping the form (and its JS) altogether.
-- **Challenge 4** (POST request): required intercepting the request in **Burp Suite** and editing the raw body before forwarding. First attempt failed silently — a bare `--` left a trailing `'` from the original query unmatched, same root cause as the comment-syntax note above. Fixing it to `-- ` (trailing space) resolved it. Captured the resulting session cookie and replayed it via Repeater against `/home` to pull the flag straight out of the rendered page.
+**Flags:** `THM{645eab5d34f81981f5705de54e8a9c36}`, `THM{727334fd0f0ea1b836a8d443f09dc8eb}`
 
-**Flags**: `THM{645eab5d34f81981f5705de54e8a9c36}`, `THM{727334fd0f0ea1b836a8d443f09dc8eb}`
+---
 
-**Detection angle**: both bypass techniques leave `OR 1=1`, stray `'`/`--` sequences, or unexpected special characters sitting in URL parameters and POST bodies — exactly the kind of signature a WAF rule or a simple regex-based log alert on login endpoints should be catching.
-
-### Challenge 5: UPDATE-Statement Injection
-A profile-edit form updating `nickName`/`email` turned out to route injected SQL into fields that get rendered straight back to the user — meaning an `UPDATE` statement became a usable (if unconventional) data-extraction channel. Confirmed the vulnerability, fingerprinted the DB engine (`sqlite_version()`), then used SQLite's `sqlite_master` table (its equivalent of `information_schema`) to enumerate tables and columns:
+### Step 3 — UPDATE-Statement Injection: Read and Write | ✍️ Key Finding
+**What happened:**
+A profile-edit form updating a nickname and email field turned out to route injected SQL into fields that get rendered straight back to the user on the next page load — turning an `UPDATE` statement, normally a dead end for reading data, into a usable extraction channel. After confirming the vulnerability, I fingerprinted the database engine with `sqlite_version()`, then used SQLite's `sqlite_master` table — its equivalent of `information_schema` — to enumerate every table and column in the database:
 ```sql
 ',nickName=(SELECT group_concat(tbl_name) FROM sqlite_master WHERE type='table' and tbl_name NOT like 'sqlite_%'),email='
 ```
-Dumped the `usertable` contents via `group_concat()`, identified the password hashes as SHA-256, cracked one to confirm it matched a known login (`toor`), then generated a new SHA-256 hash via CyberChef and wrote it directly to the admin account's password field through the same injection point — gaining full account takeover via a write, not just a read.
+With the schema mapped, I dumped the full user table via `group_concat()`, identified the password hash format as SHA-256, cracked one hash to confirm correctness against a known login, then generated a fresh SHA-256 hash for a chosen password and wrote it directly into the admin account's password field through the same injection point.
 
-**Flag**: `THM{b3a540515dbd9847c29cffa1bef1edfb}`
+_[Screenshot: profile page displaying the dumped user table via the nickName field]_
+_[Screenshot: admin account access confirmed after the password overwrite]_
 
-**Detection angle**: this one's a good reminder that SQLi monitoring shouldn't only watch `SELECT`-heavy endpoints — any form submitting to an `UPDATE` or `INSERT` path deserves the same input-validation logging. An UPDATE with abnormal payload length or embedded subqueries in a field expected to be a short string (like a nickname) is a strong anomaly signal.
+**Why this matters:**
+This step moved past reading data and into full account takeover via a write operation — a meaningfully worse outcome than a typical read-only SQLi finding. From a monitoring standpoint, any `UPDATE`/`INSERT` endpoint deserves the same scrutiny as a `SELECT`-heavy one; an unusually long or structured value landing in a field meant to hold a short nickname is a strong anomaly signal worth alerting on.
+
+**Flag:** `THM{b3a540515dbd9847c29cffa1bef1edfb}`
 
 ---
 
-## Track 2: Vulnerable Startup
-
-### Broken Authentication → Broken Authentication 2
-Same core bypass (`' or 1=1-- -`) got me in anonymously first. The next challenge asked for a full password dump without relying on blind techniques — solved with UNION-based injection, first confirming the query's column count by incrementing `NULL` placeholders, then substituting a real extraction query once the shape matched:
+### Step 4 — UNION-Based Extraction | 🔍 Reconnaissance
+**What happened:**
+A second application track started with the same authentication bypass, confirming the pattern transfers across different codebases. The next challenge required dumping every password in the database without relying on blind techniques. I used UNION-based injection, first determining the original query's column count by incrementing `NULL` placeholders until the login succeeded, then substituting a real extraction query once the shape matched:
 ```sql
 ' UNION SELECT 1,group_concat(password) FROM users-- -
 ```
-The dumped data showed up both directly on the page and inside the decoded Flask session cookie — a good reminder that session tokens can carry more than developers intend if query results get stuffed into them.
+The dumped data appeared both directly on the page and inside the application's Flask session cookie, which I decoded separately to confirm — session tokens can end up carrying more than developers intend if query output gets stored in them.
 
-**Flags**: `THM{f35f47dcd9d596f0d3860d14cd4c68ec}`, `THM{fb381dfee71ef9c31b93625ad540c9fa}`
+_[Screenshot: decoded session cookie showing the dumped password data]_
 
-### Broken Authentication 3: Blind Injection
-No visible output this time — just a login that succeeds or fails. Extracted the admin password one character at a time using `SUBSTR()` combined with hex-encoded character comparisons (needed because the app lowercases input server-side, which breaks a naive direct-string comparison):
+**Why this matters:**
+UNION-based injection is the loudest, fastest category to exploit — but also the easiest to catch, since the attacker needs the response to visibly change in a specific, predictable way. It's a good baseline before moving into techniques designed to avoid exactly that kind of visibility.
+
+**Flags:** `THM{f35f47dcd9d596f0d3860d14cd4c68ec}`, `THM{fb381dfee71ef9c31b93625ad540c9fa}`
+
+---
+
+### Step 5 — Boolean-Based Blind Injection & Automation | 🕵️ Advanced Technique
+**What happened:**
+This challenge removed all visible output — no page content changes, no useful session data, just a login that succeeds or fails. I extracted the admin password one character at a time using `SUBSTR()` combined with hex-encoded character comparisons, which was necessary because the application lowercases input server-side, breaking a naive direct-string comparison:
 ```sql
 admin' AND SUBSTR((SELECT password FROM users LIMIT 0,1),1,1) = CAST(X'54' as Text)-- -
 ```
-Ran this against the target with **sqlmap** rather than by hand. The default command from the room's own documentation didn't reliably detect the injection point — explicitly targeting the parameter (`-p username`) and giving sqlmap a clear true/false oracle (`--not-string="Invalid"`) is what got it working:
+I automated the extraction with **sqlmap** rather than scripting it by hand. The documented default command didn't reliably detect the injection point on its own — explicitly targeting the parameter (`-p username`) and giving sqlmap a clear true/false oracle (`--not-string="Invalid"`) was what got it working:
 ```bash
 sqlmap -u "http://<ip>:5000/challenge3/login" \
   --data="username=admin&password=admin" \
@@ -73,52 +101,83 @@ sqlmap -u "http://<ip>:5000/challenge3/login" \
   -p username --not-string="Invalid" --dump
 ```
 
-**Flag**: `THM{f1f4e0757a09a0b87eeb2f33bca6a5cb}`
+_[Screenshot: sqlmap confirming the boolean-based blind injection point and dumping the flag]_
 
-**Detection angle**: boolean/time-based blind injection is slow precisely because it needs one request per character guessed — which means it leaves a very distinctive trace in web server logs: dozens to hundreds of near-identical requests to the same endpoint in a short window, differing by one or two characters each time. That request-volume pattern is often easier to catch than trying to parse the payloads themselves.
+**Why this matters:**
+Blind injection is slow precisely because it needs one request per character guessed — and that's exactly what makes it detectable. A string of dozens or hundreds of near-identical requests hitting the same login endpoint in a short window, each differing by one or two characters, is a distinctive volume pattern that's often easier to catch in logs than trying to parse payload content directly.
 
-### Vulnerable Notes — Second-Order (Stored) Injection
-This one was the most interesting of the room. The note-insertion query was properly **parameterized** — the query structure is written first with `?` placeholders, and user input is only ever bound in afterward as pure data, never as part of the SQL itself. That makes it genuinely safe from injection *at that point*.
+**Flag:** `THM{f1f4e0757a09a0b87eeb2f33bca6a5cb}`
 
-The catch: parameterized queries stop malicious input from executing, but they don't stop it from being *stored*. The query that later *reads* notes back concatenated the username directly:
+---
+
+### Step 6 — Second-Order (Stored) Injection | 🪤 Critical Finding
+**What happened:**
+This was the most interesting vulnerability in the lab. The application's note-insertion query was correctly **parameterized** — the query structure was fixed first, with user input bound in afterward purely as data, never as executable SQL. That makes it genuinely safe from injection at that point. The catch: a completely different query, responsible for *reading* notes back, concatenated the stored username directly:
 ```sql
 SELECT title, note FROM notes WHERE username = '" + username + "'
 ```
-So a malicious username, safely stored at registration, became a live injection point the moment that account's own Notes page was loaded — the vulnerability doesn't fire until a *second*, unrelated query reads the poisoned data back. Registered a sequence of malicious usernames to enumerate the schema and ultimately dump the password table, triggering the actual injection on each subsequent login + page visit:
+A malicious username, safely stored at registration, became a live injection point the moment that account's own Notes page loaded — the vulnerability didn't fire at write time, only on a later, unrelated read. I registered a sequence of malicious usernames to enumerate the schema and ultimately dump the password table, with the actual injection triggering only once I logged in and visited Notes as each account:
 ```sql
 ' union select 1,group_concat(password) from users'
 ```
+I also worked out (though didn't execute live) how this would be automated with sqlmap: since the injection point (registration) and the vulnerable read (Notes page) are two separate requests, it requires a custom tamper script that registers an account, logs in, and injects the resulting session cookie into the next request's headers — letting sqlmap chain all three steps per payload attempt.
 
-**Flag**: `THM{4644c7e157fd5498e7e4026c89650814}`
+_[Screenshot: Notes page displaying the dumped password data]_
 
-**Detection angle**: this is exactly why "we use parameterized queries" isn't a complete answer to "are we safe from SQLi" — it has to be true for *every* query touching that data, not just the one that first receives it. From a monitoring standpoint, this also argues for validating/sanitizing stored data at write time regardless of how safely it was written, since you can't always guarantee every future read path will be equally careful.
+**Why this matters:**
+This is the clearest example in the lab of why "we use parameterized queries" isn't a complete answer to "are we safe from SQL injection." It has to hold true for *every* query that ever touches a given piece of data, not just the first one. It also argues for validating or sanitizing stored data at write time regardless of how safely it was written, since you can't guarantee every future read path will be equally careful.
 
-### Change Password — Trusted-Data Injection
-A password-change feature parameterized the new password correctly, but concatenated the username — fetched from the session, not directly from user input — on the (incorrect) assumption that session-sourced data was inherently safe. It wasn't: that username had originally been set by the user at registration. Registering as `admin'-- -`, then changing *that* account's own password, caused the resulting `UPDATE` to land on the real `admin` account instead, due to the comment stripping the rest of the intended `WHERE` condition.
+**Flag:** `THM{4644c7e157fd5498e7e4026c89650814}`
 
-**Flag**: `THM{cd5c4f197d708fda06979f13d8081013}`
+---
 
-**Detection angle**: a useful general principle — "where did this data come from" matters less than "has this specific value ever been attacker-influenced at any point." Session-sourced data isn't automatically trustworthy just because it didn't arrive in the current request's raw input.
+### Step 7 — Trusted-Data Injection | 🔑 Logic Flaw
+**What happened:**
+A password-change feature correctly parameterized the new password value, but concatenated the username — fetched from the session rather than directly from user input — on the assumption that session-sourced data was inherently safe. It wasn't: that username had originally been set by the user at registration, meaning it was attacker-controlled from the start, just several steps removed. Registering as `admin'-- -`, then changing *that* account's own password, caused the resulting `UPDATE` to land on the real `admin` account instead — the injected comment stripped the rest of the intended `WHERE` condition.
 
-### Book Title & Book Title 2 — UNION Injection and Query Chaining
-A book-search feature concatenated search input into a `LIKE` clause, allowing a straightforward UNION-based dump once the column count was matched:
-```sql
-') UNION SELECT 1,2,3,group_concat(password) FROM users-- -
-```
-The follow-up challenge chained two separate, independently vulnerable queries — the first fetches a book ID, the second uses that ID in its own query. Rather than attacking either one blind, I controlled the first query's output directly, fed a crafted value into the second, and escaped into a second UNION by doubling the single quote (`''`) to properly terminate the string the first injection had opened:
+_[Screenshot: successful login as admin after the password overwrite, showing the flag]_
+
+**Why this matters:**
+The useful general principle here: where a value currently lives (session, database, request body) matters less than whether it was ever attacker-influenced at any point in its history. "It's not raw user input" is not the same claim as "it's safe."
+
+**Flag:** `THM{cd5c4f197d708fda06979f13d8081013}`
+
+---
+
+### Step 8 — Chained Query Exploitation | 🔗 Advanced Technique
+**What happened:**
+A book-search feature concatenated search input directly into a `LIKE` clause, giving a straightforward UNION-based dump once the column count was matched. A follow-up challenge raised the difficulty by chaining two independently vulnerable queries — the first fetches a book's ID, the second uses that ID in a completely separate query. Rather than attacking either one blind, I forced the first query to return zero real rows, controlled its output directly, and fed a crafted value into the second query. To get the second query to run its own UNION rather than just accept a literal value, I had to escape into it by doubling the single quote (`''`) to correctly terminate the string literal the first injection had opened:
 ```sql
 ' union select '-1'' union select 1,2,group_concat(password),4 from users-- -
 ```
 
-**Flags**: `THM{27f8f7ce3c05ca8d6553bc5948a89210}`, `THM{183526c1843c09809695a9979a672f09}`
+_[Screenshot: search results displaying the final dumped password data]_
 
-**Detection angle**: chained/second-order vulnerabilities like this one are genuinely harder to catch with simple pattern matching on a single request, since no single request looks obviously malicious in isolation — it's the sequence across requests that matters. This is a solid argument for correlating application logs across a session rather than evaluating each request independently.
+**Why this matters:**
+Chained, second-order-style vulnerabilities like this one are genuinely harder to catch with simple single-request pattern matching, since no individual request looks obviously malicious on its own — it's the sequence across requests that matters. This is a solid argument for correlating application logs across a session rather than evaluating each request in isolation.
 
----
+**Flags:** `THM{27f8f7ce3c05ca8d6553bc5948a89210}`, `THM{183526c1843c09809695a9979a672f09}`
 
-## Takeaways
-
+## Key Takeaways
 - Parameterized queries are necessary but not sufficient — every query touching a given piece of data needs the same discipline, not just the one that first receives it.
-- "Safe because it came from the database/session, not directly from the user" is a trap — if that value was ever attacker-controlled upstream, it's still attacker-controlled.
-- Blind and second-order injection are slower and noisier to exploit by hand, but that noise (request volume, request sequencing) is exactly what makes them detectable from the defensive side, even without inspecting payload content directly.
-- Tooling (sqlmap) isn't plug-and-play — getting it to actually find and exploit some of these vulnerabilities required understanding the underlying technique well enough to steer it (explicit parameter targeting, custom success/failure strings, and for the stored-injection case, a custom tamper script to chain a multi-step exploit).
+- "Safe because it came from the database or session, not directly from user input" is a trap — if a value was ever attacker-controlled upstream, it's still attacker-controlled.
+- Blind and second-order injection are slower and noisier to exploit by hand, but that noise — request volume, request sequencing — is exactly what makes them detectable from the defensive side, even without inspecting payload content directly.
+- Automated tooling isn't plug-and-play. Getting sqlmap to actually find and exploit some of these vulnerabilities required understanding the underlying technique well enough to steer it — explicit parameter targeting, custom success/failure strings, and for the stored-injection case, a custom tamper script to chain a multi-step exploit.
+
+## Skills Practiced
+- SQL injection: classic, UNION-based, boolean-based blind, UPDATE-statement, and second-order/stored
+- Client-side control bypass via direct URL manipulation and Burp Suite request interception
+- Database schema enumeration via SQLite's `sqlite_master` table
+- Hash identification and cracking (SHA-256)
+- Session cookie analysis and decoding (Flask sessions)
+- Automated exploitation and custom tamper script development with sqlmap
+
+## Tools & Technologies
+- **Burp Suite** – intercepting and modifying POST requests to bypass client-side validation
+- **sqlmap** – automated boolean-based blind injection and second-order injection via custom tamper scripts
+- **CyberChef** – generating SHA-256 hashes for credential overwrite
+- **Flask session decoder** – inspecting session cookie contents for leaked query data
+- **SQLite** – target database engine throughout the lab
+
+## Conclusion
+No single technique in this lab was exotic — every vulnerability traced back to the same root cause of unsanitized string concatenation. What made the later challenges genuinely difficult wasn't the SQL itself, but recognizing *where* that concatenation was happening: not always in the form directly in front of me, but sometimes in a completely different query, triggered by a completely different request, reading data that had been safely stored much earlier. That gap — between where a payload is planted and where it actually detonates — is the part of SQL injection that's easiest to underestimate, and the part most worth understanding well before moving into any defensive role meant to catch it.
