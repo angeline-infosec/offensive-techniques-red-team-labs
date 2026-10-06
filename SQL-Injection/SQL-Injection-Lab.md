@@ -15,13 +15,13 @@ I'm working toward a Tier 1 SOC Analyst role, so alongside each technique I've n
 ## What I Learned
 **Why string concatenation in SQL queries is the root cause:** every vulnerability in this lab traced back to the same mistake: user input dropped directly into a query string instead of being treated as pure data. The specific syntax varied (login forms, UPDATE statements, search fields), but the underlying flaw never did.
 
-**Why "parameterized" doesn't mean "safe" app-wide:** a query can be perfectly parameterized and still be part of a vulnerable system. If a different, unsafe query later reads the data that safe query stored. Safety is a property of every query touching a piece of data, not of the one that first receives it.
+**Why parameterized doesn't mean "safe" app-wide:** a query can be perfectly parameterized and still be part of a vulnerable system. If a different, unsafe query later reads the data that safe query stored. Safety is a property of every query touching a piece of data, not of the one that first receives it.
 
 **Why blind injection is slow but not weak:** without any visible output, extracting data one character at a time via true/false responses (or response timing) is tedious by hand, but it's just as complete as reading data directly off the page, and it's exactly what tools like sqlmap exist to automate.
 
 ## Investigation Steps
 
-### Step 1: Environment Setup & Baseline Bypass | ⚙️ Prerequisite
+### Step 1: Environment Setup & Baseline Bypass | Prerequisite
 **What happened:**
 The sandbox app runs with a "Show Query" toggle that exposes the live SQL behind every request, which is genuinely useful for confirming cause and effect rather than guessing. 
 
@@ -54,7 +54,7 @@ First, close the data context you've been placed in, inject a condition, comment
 
 ---
 
-### Step 2: Defeating Client-Side Controls | 🧱 Bypass Technique
+### Step 2: Defeating Client-Side Controls | Bypass Technique
 **What happened:**
 The next two forms added JavaScript restricting input to alphanumeric characters. For the GET-based form, the client-side check was skipped entirely by crafting the target URL directly in the address bar;  the JS never runs if the form itself is never submitted through the browser's normal flow. For the POST-based form, that wasn't an option, so I intercepted the request in **Burp Suite** and edited the raw request body before forwarding it. The same comment-syntax issue from Step 1 reappeared here: a bare `--` silently failed inside Burp until I added the trailing space back in. Once the login succeeded, I captured the resulting session cookie and replayed it with Burp Repeater against the application's home page to pull the flag straight out of the rendered HTML.
 
@@ -66,41 +66,51 @@ And by editing the url that way, I retrieved the flag.
 
 <img width="1243" height="482" alt="image" src="https://github.com/user-attachments/assets/2d4a3303-7bfb-4750-8f90-7340010e6b45" />
 
+* Here, this form submits via POST, so the JS block has to be bypassed differently by Intercepting the request with Burp Suite and editing the profileID field directly in the raw request body before forwarding.
 
-_[Screenshot: Burp Repeater request/response showing the authenticated home page and flag]_
+<img width="1201" height="625" alt="image" src="https://github.com/user-attachments/assets/9c1688e4-8c5e-40ae-b361-509d6979648d" />
+
+
+<img width="1186" height="621" alt="image" src="https://github.com/user-attachments/assets/e0667442-63ff-408b-978f-c9d149bb8ddc" />
+
 
 **Why this matters:**
-Client-side validation is a UX feature, not a security boundary — the client is fully under the attacker's control, whether that's a crafted URL or an intercepting proxy. From a defensive standpoint, any server-side endpoint that *only* trusts JS-level input filtering has no real protection at all.
+Client-side validation is a UX feature, not a security boundary. The client is fully under the attacker's control, whether that's a crafted URL or an intercepting proxy. From a defensive standpoint, any server-side endpoint that only trusts JS-level input filtering has no real protection at all.
 
 **Flags:** `THM{645eab5d34f81981f5705de54e8a9c36}`, `THM{727334fd0f0ea1b836a8d443f09dc8eb}`
 
 ---
 
-### Step 3 — UPDATE-Statement Injection: Read and Write | ✍️ Key Finding
+### Step 3: UPDATE-Statement Injection: Read and Write | Key Finding
 **What happened:**
-A profile-edit form updating a nickname and email field turned out to route injected SQL into fields that get rendered straight back to the user on the next page load — turning an `UPDATE` statement, normally a dead end for reading data, into a usable extraction channel. After confirming the vulnerability, I fingerprinted the database engine with `sqlite_version()`, then used SQLite's `sqlite_master` table — its equivalent of `information_schema` — to enumerate every table and column in the database:
+A profile-edit form updating a nickname and email field routes injected SQL into fields that get rendered straight back to the user on the next page load, turning an `UPDATE` statement, normally a dead end for reading data, into a usable extraction channel. After confirming the vulnerability, I fingerprinted the database engine with `sqlite_version()`, then used SQLite's `sqlite_master` table (its equivalent of `information_schema`) to enumerate every table and column in the database:
 ```sql
 ',nickName=(SELECT group_concat(tbl_name) FROM sqlite_master WHERE type='table' and tbl_name NOT like 'sqlite_%'),email='
 ```
-With the schema mapped, I dumped the full user table via `group_concat()`, identified the password hash format as SHA-256, cracked one hash to confirm correctness against a known login, then generated a fresh SHA-256 hash for a chosen password and wrote it directly into the admin account's password field through the same injection point.
+With the schema mapped, I dumped the full user table via `group_concat()`, identified the password hash format as SHA-256, cracked one hash via an online tool and recovered toor, which matched the login password already used, confirming the crack was correct, then generated a fresh SHA-256 hash for a chosen password and wrote it directly into the admin account's password field through the same injection point.
 
-_[Screenshot: profile page displaying the dumped user table via the nickName field]_
+<img width="1137" height="373" alt="image" src="https://github.com/user-attachments/assets/104869c1-47e8-4f2a-9ac3-49f1069a6513" />
+
+<img width="1053" height="400" alt="image" src="https://github.com/user-attachments/assets/184192b3-9edf-4b58-97e0-fd1d250bcc7e" />
+
+Then I updated Admin's password using the UPDATE injection, logged in as Admin, and found the flag inside the table.
+
 _[Screenshot: admin account access confirmed after the password overwrite]_
 
 **Why this matters:**
-This step moved past reading data and into full account takeover via a write operation — a meaningfully worse outcome than a typical read-only SQLi finding. From a monitoring standpoint, any `UPDATE`/`INSERT` endpoint deserves the same scrutiny as a `SELECT`-heavy one; an unusually long or structured value landing in a field meant to hold a short nickname is a strong anomaly signal worth alerting on.
+This step moved past reading data and into full account takeover via a write operation. A meaningfully worse outcome than a typical read-only SQLi finding. From a monitoring standpoint, any `UPDATE`/`INSERT` endpoint deserves the same scrutiny as a `SELECT`-heavy one; an unusually long or structured value landing in a field meant to hold a short nickname is a strong anomaly signal worth alerting on.
 
 **Flag:** `THM{b3a540515dbd9847c29cffa1bef1edfb}`
 
 ---
 
-### Step 4 — UNION-Based Extraction | 🔍 Reconnaissance
+### Step 4: UNION-Based Extraction | Reconnaissance
 **What happened:**
 A second application track started with the same authentication bypass, confirming the pattern transfers across different codebases. The next challenge required dumping every password in the database without relying on blind techniques. I used UNION-based injection, first determining the original query's column count by incrementing `NULL` placeholders until the login succeeded, then substituting a real extraction query once the shape matched:
 ```sql
 ' UNION SELECT 1,group_concat(password) FROM users-- -
 ```
-The dumped data appeared both directly on the page and inside the application's Flask session cookie, which I decoded separately to confirm — session tokens can end up carrying more than developers intend if query output gets stored in them.
+The dumped data appeared both directly on the page and inside the application's Flask session cookie, which I decoded separately to confirm that session tokens can end up carrying more than developers intend if query output gets stored in them.
 
 _[Screenshot: decoded session cookie showing the dumped password data]_
 
