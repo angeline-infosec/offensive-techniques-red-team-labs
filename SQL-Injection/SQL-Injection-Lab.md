@@ -5,43 +5,67 @@ _Understand how SQL injection attacks work and how to exploit this vulnerability
 <img width="1902" height="522" alt="image" src="https://github.com/user-attachments/assets/305b59ea-6fd6-4771-9c65-4f53f6c463f6" />
 
 
-_A hands-on walkthrough of TryHackMe's SQL Injection Lab room — ten challenges spanning classic authentication bypass, UNION-based extraction, boolean-based blind injection, UPDATE-statement injection, second-order (stored) injection, and automated exploitation with sqlmap, including a custom tamper script._
+_A hands-on walkthrough of TryHackMe's SQL Injection Lab room. Ten challenges spanning classic authentication bypass, UNION-based extraction, boolean-based blind injection, UPDATE-statement injection, second-order (stored) injection, and automated exploitation with sqlmap, including a custom tamper script._
 
 ## Lab Overview
 This lab worked through ten progressively harder SQL injection scenarios inside a deliberately vulnerable employee-management application. It started with textbook authentication bypass and ended with chained, second-order vulnerabilities that required controlling one query to weaponize a completely different one. Rather than one technique reused ten times, each challenge forced a different angle: reading data out through fields never meant to display it, writing data back through forms assumed to be safe, and exploiting the gap between a query that's correctly parameterized and the one sitting downstream of it that isn't.
 
-I'm working toward a Tier 1 SOC Analyst role, so alongside each technique I've noted what it would actually surface from the defending side — that's ultimately the lens this lab was most useful for.
+I'm working toward a Tier 1 SOC Analyst role, so alongside each technique I've noted what it would actually surface from the defending side, that's ultimately the lens this lab was most useful for.
 
 ## What I Learned
-**Why string concatenation in SQL queries is the root cause:** every vulnerability in this lab traced back to the same mistake — user input dropped directly into a query string instead of being treated as pure data. The specific syntax varied (login forms, UPDATE statements, search fields), but the underlying flaw never did.
+**Why string concatenation in SQL queries is the root cause:** every vulnerability in this lab traced back to the same mistake: user input dropped directly into a query string instead of being treated as pure data. The specific syntax varied (login forms, UPDATE statements, search fields), but the underlying flaw never did.
 
-**Why "parameterized" doesn't mean "safe" app-wide:** a query can be perfectly parameterized and still be part of a vulnerable system, if a different, unsafe query later reads the data that safe query stored. Safety is a property of every query touching a piece of data, not of the one that first receives it.
+**Why "parameterized" doesn't mean "safe" app-wide:** a query can be perfectly parameterized and still be part of a vulnerable system. If a different, unsafe query later reads the data that safe query stored. Safety is a property of every query touching a piece of data, not of the one that first receives it.
 
-**Why blind injection is slow but not weak:** without any visible output, extracting data one character at a time via true/false responses (or response timing) is tedious by hand — but it's just as complete as reading data directly off the page, and it's exactly what tools like sqlmap exist to automate.
+**Why blind injection is slow but not weak:** without any visible output, extracting data one character at a time via true/false responses (or response timing) is tedious by hand, but it's just as complete as reading data directly off the page, and it's exactly what tools like sqlmap exist to automate.
 
 ## Investigation Steps
 
-### Step 1 — Environment Setup & Baseline Bypass | ⚙️ Prerequisite
+### Step 1: Environment Setup & Baseline Bypass | ⚙️ Prerequisite
 **What happened:**
-The sandbox app runs with a "Show Query" toggle exposing the live SQL behind every request — genuinely useful for confirming cause and effect rather than guessing. Starting with the simplest login forms, an integer-type parameter and a string-type parameter each fell to the classic always-true bypass:
+The sandbox app runs with a "Show Query" toggle that exposes the live SQL behind every request, which is genuinely useful for confirming cause and effect rather than guessing. 
+
+<img width="1917" height="940" alt="image" src="https://github.com/user-attachments/assets/ee7ce2ad-a0cf-4f54-a63b-0e54c12bba85" />
+
+
+Starting with the simplest login forms, an integer-type parameter and a string-type parameter each fell to the classic always-true bypass:
 ```
 1 or 1=1-- -
 1' or '1'='1'-- -
 ```
-One early snag: a bare `--` comment marker didn't reliably work. MySQL's comment syntax requires a trailing whitespace character after the second dash to actually take effect — without it, a stray quote left over from the original query can go unmatched and break the injection instead of completing it. Switching to `-- -` (dash-dash-space-dash) fixed it immediately.
+One early snag: a bare `--` comment marker didn't reliably work. MySQL's comment syntax requires a trailing whitespace character after the second dash to actually take effect. Without it, a stray quote left over from the original query can go unmatched and break the injection instead of completing it. Switching to `-- -` (dash-dash-space-dash) fixed it immediately.
 
-_[Screenshot: login bypass with Show Query panel confirming the injected statement]_
+* Query used here: ```1 or 1=1-- -```
+
+<img width="1347" height="569" alt="image" src="https://github.com/user-attachments/assets/af2e2dfd-ae88-44a2-acd1-f2972f811d4d" />
+
+<img width="1245" height="368" alt="image" src="https://github.com/user-attachments/assets/f2c9a83d-ffda-4db7-a6cf-8ae8ec4acc76" />
+
+* Query used here: ```1' or '1'='1'-- -```
+
+<img width="1277" height="416" alt="image" src="https://github.com/user-attachments/assets/7e0787a1-3568-4664-8171-0bd670115eb0" />
+
 
 **Why this matters:**
-This is the foundational pattern every later challenge in the lab builds on — close the data context you've been placed in, inject a condition, comment out the rest. Getting the comment syntax wrong looks like a failed injection, not a syntax issue, which is a useful debugging lesson on its own.
+This is the foundational pattern every later challenge in the lab builds on.
+First, close the data context you've been placed in, inject a condition, comment out the rest. Getting the comment syntax wrong looks like a failed injection, not a syntax issue, which is a useful debugging lesson.
 
 **Flags:** `THM{dccea429d73d4a6b4f117ac64724f460}`, `THM{356e9de6016b9ac34e02df99a5f755ba}`
 
 ---
 
-### Step 2 — Defeating Client-Side Controls | 🧱 Bypass Technique
+### Step 2: Defeating Client-Side Controls | 🧱 Bypass Technique
 **What happened:**
-The next two forms added JavaScript restricting input to alphanumeric characters. For the GET-based form, the client-side check was skipped entirely by crafting the target URL directly in the address bar — the JS never runs if the form itself is never submitted through the browser's normal flow. For the POST-based form, that wasn't an option, so I intercepted the request in **Burp Suite** and edited the raw request body before forwarding it. The same comment-syntax issue from Step 1 reappeared here — a bare `--` silently failed inside Burp until I added the trailing space back in. Once the login succeeded, I captured the resulting session cookie and replayed it with Burp Repeater against the application's home page to pull the flag straight out of the rendered HTML.
+The next two forms added JavaScript restricting input to alphanumeric characters. For the GET-based form, the client-side check was skipped entirely by crafting the target URL directly in the address bar;  the JS never runs if the form itself is never submitted through the browser's normal flow. For the POST-based form, that wasn't an option, so I intercepted the request in **Burp Suite** and edited the raw request body before forwarding it. The same comment-syntax issue from Step 1 reappeared here: a bare `--` silently failed inside Burp until I added the trailing space back in. Once the login succeeded, I captured the resulting session cookie and replayed it with Burp Repeater against the application's home page to pull the flag straight out of the rendered HTML.
+
+* Here, this form submits via GET, so the JS validation can be skipped entirely by navigating directly to a crafted URL:
+
+```http://<ip>:5000/sesqli3/login?profileID=1' or 1=1-- -&password=a```
+
+And by editing the url that way, I retrieved the flag. 
+
+<img width="1243" height="482" alt="image" src="https://github.com/user-attachments/assets/2d4a3303-7bfb-4750-8f90-7340010e6b45" />
+
 
 _[Screenshot: Burp Repeater request/response showing the authenticated home page and flag]_
 
@@ -181,3 +205,7 @@ Chained, second-order-style vulnerabilities like this one are genuinely harder t
 
 ## Conclusion
 No single technique in this lab was exotic — every vulnerability traced back to the same root cause of unsanitized string concatenation. What made the later challenges genuinely difficult wasn't the SQL itself, but recognizing *where* that concatenation was happening: not always in the form directly in front of me, but sometimes in a completely different query, triggered by a completely different request, reading data that had been safely stored much earlier. That gap — between where a payload is planted and where it actually detonates — is the part of SQL injection that's easiest to underestimate, and the part most worth understanding well before moving into any defensive role meant to catch it.
+
+
+Detailed note/walkthrough [here](https://github.com/angeline-infosec/notes/blob/main/Web/SQL-Injection-Lab.md).  
+
