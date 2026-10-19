@@ -28,7 +28,7 @@ The goal of this repository is to document real-world attack techniques, enumera
 
 * [Hacker's Holiday 2026](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/tree/main/Hacker's%20Holiday%202026) (14 rooms) – A multi-room TryHackMe CTF event covering cloud credential chaining, Zip Slip path traversal, TOCTOU race conditions, prompt injection against an AI agent, and unsanitized command injection, among others.
 
-* [Overflow the Jackpot](https://tryhackme.com/room/thm-ctf-jackpot-overflow) (5 tasks) – A casino-themed TryHackMe CTF room with five standalone challenges.
+* [Overflow the Jackpot](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/tree/main/Overflow%20The%20Jackpot%20CTF) (5 tasks) – A casino-themed TryHackMe CTF room with five standalone challenges.
 
 
 More offensive security and red team simulations will be added soon!
