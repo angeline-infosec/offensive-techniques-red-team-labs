@@ -24,4 +24,11 @@ The goal of this repository is to document real-world attack techniques, enumera
 
 * [LazyAdmin](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/blob/main/LazyAdmin.md) – A full end-to-end web exploitation and privilege escalation lab targeting a misconfigured SweetRice CMS. Covers directory enumeration, exposed SQL backup discovery, credential extraction, authenticated PHP reverse shell upload, and Linux privilege escalation via sudo misconfiguration and writable script abuse.
 
+* [SQL Injection](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/blob/main/SQL-Injection/SQL-Injection.md) – SQL fundamentals, In-Band (Error-Based, Union-Based), Blind (Authentication Bypass, Boolean-Based, Time-Based), and Out-of-Band injection techniques, plus remediation. Practical lab walkthroughs with payloads and screenshots documented separately in [SQL-Injection-Lab.md](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/blob/main/SQL-Injection/SQL-Injection-Lab.md).
+
+* [Hacker's Holiday 2026](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/tree/main/Hacker's%20Holiday%202026) (14 rooms) – A multi-room TryHackMe CTF event covering cloud credential chaining, Zip Slip path traversal, TOCTOU race conditions, prompt injection against an AI agent, and unsanitized command injection, among others.
+
+* [Overflow the Jackpot](https://tryhackme.com/room/thm-ctf-jackpot-overflow) (5 tasks) – A casino-themed TryHackMe CTF room with five standalone challenges.
+
+
 More offensive security and red team simulations will be added soon!
