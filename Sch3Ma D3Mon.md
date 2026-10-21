@@ -1,6 +1,5 @@
-# TryHack3M : Sch3Ma D3Mon - TryHackMe
+# [TryHack3M : Sch3Ma D3Mon](https://tryhackme.com/room/sch3mad3mon) - TryHackMe
 
-**Room:** [TryHack3M: Sch3Ma D3Mon (TryHackMe)](https://tryhackme.com/room/sch3mad3mon)
  Platform: ![TryHackMe](https://img.shields.io/badge/TryHackMe-1abc9c?style=flat-square) | Perspective: Attacker
 
 
