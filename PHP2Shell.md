@@ -27,21 +27,29 @@ ssh ubuntu@10.48.152.215
 
 The server runs a vulnerable PHP install behind Apache in a container on `127.0.0.1:8088`, and the exploit tooling is already present in the `ubuntu` user's home directory. No questions to answer here, this task is setup.
 
-![screenshot: SSH session connected to the attackbox](screenshot-task1-ssh.png)
 
 ## Task 2: A Harmless Feature - Upload Progress
 This task was theory covering `session.upload_progress`, PHP's built-in way of reporting file-upload progress back to a page. When a form includes a field named `PHP_SESSION_UPLOAD_PROGRESS` (the default name the setting looks for), PHP writes live progress data into the session while it is still reading the multipart request body off the wire. That happens during body parsing, which is one of the very first things PHP does, well before the request environment is initialized and well before the target script runs a single line. That timing is the whole foothold: no `session_start()`, no login, and no application logic at all is required to reach this code. Any URL on the server that accepts a POST request is enough.
 
+<img width="1086" height="310" alt="image" src="https://github.com/user-attachments/assets/3de854b7-5821-45b1-b999-7b37fff2a132" />
+
+
 **Q: What is the default name of the form field that switches on PHP's upload-progress tracking?**
+
 **A:** `PHP_SESSION_UPLOAD_PROGRESS`
 
 ## Task 3: The Bug - A Bailout at the Wrong Moment
 Also theory. PHP caps memory per request with `memory_limit`. When a request exceeds it, PHP cannot continue normally, so it performs a bailout: a `longjmp()` straight back to a safe recovery point, skipping the orderly cleanup a request normally does (free memory, then clear the pointer to it). If the out-of-memory hit lands between those two steps, in that gap after a block is freed but before the pointer to it is cleared, the bailout leaves a dangling pointer behind. On its own that's harmless since the request is dead, but Apache's prefork `mod_php` setup reuses the same worker process across requests, so the stale pointer survives into whatever lands on that worker next. Whoever controls what gets allocated into that freed space controls what the pointer now resolves to. One root cause, two CVEs: 109618 is the memory-disclosure path, 109619 is the code-execution path.
 
+<img width="1020" height="419" alt="image" src="https://github.com/user-attachments/assets/ff1f40ba-dd17-44bb-8d72-5e4ccc6c6308" />
+
+
 **Q: What one-word name does the PHP engine give to the longjmp it performs to abort a request that hits a fatal error such as running out of memory?**
+
 **A:** `bailout`
 
 **Q: What is the CWE identifier for the weakness class behind PHP2Shell? (format: CWE-NNN)**
+
 **A:** `CWE-824`
 
 ## Task 4: Reconnaissance - Confirming the Target
@@ -49,13 +57,14 @@ Confirmed the container and PHP version:
 
 ```bash
 $ docker ps --format '{{.Names}}  {{.Image}}  {{.Status}}'
-php2shell-target  php:8.4.26-apache  Up 33 minutes
 
 $ docker exec php2shell-target php -v
-PHP 8.4.26 (cli) (built: Oct 21 2026 00:31:19) (NTS)
 ```
 
-![screenshot: docker ps and php -v output](screenshot-task4-recon.png)
+<img width="922" height="102" alt="image" src="https://github.com/user-attachments/assets/5081c856-1555-4bae-aa37-0d1fc28b5d3b" />
+
+<img width="952" height="175" alt="image" src="https://github.com/user-attachments/assets/02013311-df34-46d2-9229-cb768b22991c" />
+
 
 8.4.26 is one release behind the 8.4.27 fix, confirming the target is vulnerable. Checked what was actually being attacked:
 
@@ -67,7 +76,8 @@ $ docker exec php2shell-target cat /var/www/html/index.php
 <?php echo "OK\n"; ?>
 ```
 
-![screenshot: curl output and index.php source](screenshot-task4-index.png)
+<img width="947" height="117" alt="image" src="https://github.com/user-attachments/assets/9bd1edc3-330b-4161-b9a2-d7c0bf7e10bb" />
+
 
 The entire application is a single echo statement. No login form, no upload feature, no database, nothing to find at the application layer. That's the point of the room: if the attack lands against this page, it lands against the runtime, not the app, and a real WordPress or Laravel site is no better protected just because its own code is clean.
 
@@ -75,12 +85,11 @@ Listed the exploit tooling already on the box:
 
 ```bash
 $ ls ~/php2shell-bypass-aslr-exp
-ASLR_PATHS.md  NOTES_BG.md  logs  ASLR_PURE_HTTP.md  NO_DISPLAY_ERRORS.md  out
-ASLR_PURE_HTTP_RESEARCH.md  README.md  readme_en.md  DISPLAY_ERRORS_OFF.md  docker  src
-HTTP_HEAP_LEAK.md  e.py  tools  NOASLR_REPORT.md  exploit.py  NOTES.md  lab
+
 ```
 
-![screenshot: exploit directory listing](screenshot-task4-exploit-dir.png)
+<img width="947" height="237" alt="image" src="https://github.com/user-attachments/assets/ba9d1d76-eecc-4fee-8a20-1dc3cd5c1e15" />
+
 
 **Q: What version of PHP is the target server running?**
 **A:** `8.4.26`
@@ -91,6 +100,9 @@ HTTP_HEAP_LEAK.md  e.py  tools  NOASLR_REPORT.md  exploit.py  NOTES.md  lab
 ## Task 5: Leaking Memory and Defeating ASLR (CVE-2026-109618)
 ASLR randomizes where code and data load specifically so an attacker can't predict addresses. This CVE removes that protection by reading the dangling pointer back as a string. An out-of-memory condition is provoked while a session ID is being handled, leaving a stale pointer to it; a follow-up request reoccupies that freed space so the pointer now describes a string with an attacker-inflated length. When PHP sends the session cookie, it reads out that oversized string and hands it back in the `Set-Cookie: PHPSESSID` header, up to roughly 67 KB of the worker's actual memory per request. Ran the exploit to watch the leak stage:
 
+<img width="1133" height="399" alt="image" src="https://github.com/user-attachments/assets/bf4f1314-9b6b-4924-9a09-3599ab6971e9" />
+
+
 ```bash
 $ cd ~/php2shell-bypass-aslr-exp
 $ python3 exploit.py -u http://127.0.0.1:8088/index.php
@@ -99,16 +111,20 @@ $ python3 exploit.py -u http://127.0.0.1:8088/index.php
 [*] stage 2: libphp leak (attempt 1/3)
 [+] libphp base = 0x70d1a4911000
 ```
+<img width="956" height="765" alt="image" src="https://github.com/user-attachments/assets/45e58d92-1057-4c1f-9da3-ddec1f93a0fb" />
 
-![screenshot: exploit.py output showing the heap and libphp leak](screenshot-task5-leak.png)
 
 Two leaks: the heap base and the libphp (PHP engine library) base, both pulled straight out of `Set-Cookie` headers. Addresses differ every run since ASLR is still doing its job, the exploit just reads them fresh instead of guessing.
 
 **Q: Which HTTP response header does CVE-2026-109618 abuse to return leaked process memory to the attacker?**
+
 **A:** `Set-Cookie`
 
 ## Task 6: From a Leak to a Shell (CVE-2026-109619)
 With the heap and library locations known, this CVE reoccupies the dangling reference again, this time with a forged internal `HashTable` structure whose destructor pointer (`pDestructor`) is set to the now-known address of `system()`. When PHP tidies up that value at the end of request handling, it calls what it believes is a routine destructor and instead calls `system()` with attacker-controlled bytes as the argument. Ran the full chain:
+
+<img width="1041" height="433" alt="image" src="https://github.com/user-attachments/assets/3a849cd8-9deb-412e-851a-d72864a9c4f0" />
+
 
 ```bash
 $ python3 exploit.py -u http://127.0.0.1:8088/index.php
@@ -117,30 +133,33 @@ $ python3 exploit.py -u http://127.0.0.1:8088/index.php
 PROOF: uid=33(www-data) gid=33(www-data) groups=33(www-data)
 ```
 
-![screenshot: exploit.py proving code execution as www-data](screenshot-task6-rce.png)
+<img width="956" height="765" alt="image" src="https://github.com/user-attachments/assets/610ae283-46e2-4529-ae1c-90ed3f565ffa" />
 
-Confirmed RCE as `www-data` from nothing but multipart POST requests, in under ten seconds, against a page with no application bug. Retrieved the flag:
+Confirmed RCE as `www-data` from nothing but multipart POST requests, in under ten seconds, against a page with no application bug. 
+Retrieved the flag:
 
 ```bash
 $ python3 exploit.py -u http://127.0.0.1:8088/index.php -c 'cat /f>/out/p1' --proof-file out/p1
 PROOF: THM{b4ilout_l3aves_th3_h3ap_dang1ing}
 ```
 
-![screenshot: flag retrieved](screenshot-task6-flag.png)
-
 **Q: When the exploit runs, which system user do the commands execute as?**
+
 **A:** `www-data`
 
 **Q: What is the flag returned by the exploit?**
+
 **A:** `THM{b4ilout_l3aves_th3_h3ap_dang1ing}`
 
 ## Task 7: Detection, Mitigation and the Real Fix
 The only complete fix is patching the PHP runtime (8.5.12, 8.4.27, 8.3.36, or 8.2.35) and restarting every worker, since updating the application framework on top does nothing, the vulnerable code is below it. Interim measures: `session.upload_progress.enabled = 0` plus a worker restart removes the trigger for most reported techniques, `opcache.enable = 0` frustrates the execution path, `fatal_error_backtraces = 0` addresses 109619 specifically on PHP 8.5, and blocking `multipart/form-data` at the edge stops delivery at the cost of breaking legitimate uploads. A PHP-module WAF does not help here, since it only inspects traffic once control passes to the application, and this attack finishes before that point.
 
 **Q: Which PHP 8.4 release fixes PHP2Shell?**
+
 **A:** `8.4.27`
 
 **Q: Which php.ini directive, set to 0, disables the feature the attack relies on for delivery?**
+
 **A:** `session.upload_progress.enabled`
 
 ## Why This Worked
@@ -152,8 +171,7 @@ Patch the PHP runtime to 8.5.12/8.4.27/8.3.36/8.2.35 and restart every worker, t
 ## What I Learned
 This was my first runtime-level bug worked end to end rather than an application-layer one, and the part that stuck with me is how little the application mattered, `index.php` is a single echo and the exploit doesn't care. It reframed how I think about "patch the app" as a control: necessary, but it has a ceiling, and that ceiling is the runtime underneath it. The leak-then-corrupt pattern (read memory to beat a mitigation, then write to hijack control flow) is also a shape worth recognizing outside PHP specifically, it's the same two-step a lot of memory-safety exploits in compiled languages follow, just told here inside an interpreter instead of raw C.
 
-## Interview Prep: PHP2Shell
-This is the section to reread before a SOC interview, pitched at "what would I actually be asked."
+## Prep: PHP2Shell
 
 **Q: What is PHP2Shell, in one or two sentences?**
 
