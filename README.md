@@ -30,9 +30,9 @@ The goal of this repository is to document real-world attack techniques, enumera
 
 * [Overflow the Jackpot](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/tree/main/Overflow%20The%20Jackpot%20CTF) (5 tasks) – A casino-themed TryHackMe CTF room with five standalone challenges.
 
-* [Bypass Disable Funcctions]()
+* [Bypass Disable Functions](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/blob/main/Bypass%20Disable%20Functions.md)
 
-* [Sch3Ma D3Mon]()
+* [Sch3Ma D3Mon](https://github.com/angeline-infosec/offensive-techniques-red-team-labs/blob/main/Sch3Ma%20D3Mon.md)
 
 
 
